@@ -57,6 +57,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* SPCBoy renders its own selection, pressed, and range states. Do not allow
+   the browser's platform-blue focus ring to leak into any control. */
+:where(button, input, select, textarea, [tabindex]):focus,
+:where(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  -webkit-focus-ring-color: transparent;
+}
+
 button,
 input,
 table {

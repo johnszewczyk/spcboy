@@ -1303,7 +1303,7 @@ function selectPlaylistTrack(trackId, { focus = false } = {}) {
   nextRow?.classList.add("is-selected");
   selectedPlaylistRow = nextRow;
   scheduleSelectionIndicators();
-  if (focus) nextRow?.focus();
+  if (focus) nextRow?.focus({ preventScroll: true });
   return track;
 }
 
@@ -1758,7 +1758,9 @@ function moveSelection(delta) {
     ? Math.max(0, Math.min(state.playlist.length - 1, currentIndex + delta))
     : (delta >= 0 ? 0 : state.playlist.length - 1);
 
-  selectPlaylistTrack(state.playlist[nextIndex].id);
+  // Keep DOM focus and the visual selection together. Without this, Enter
+  // can be routed through an old sidebar/focused row after arrow navigation.
+  selectPlaylistTrack(state.playlist[nextIndex].id, { focus: true });
   uiApp.playback.updateTimingSummary();
   scrollSelectedTrackIntoView();
   uiApp.playback.preloadTrackAudio(uiApp.selectedTrack());
