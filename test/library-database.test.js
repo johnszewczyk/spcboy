@@ -218,6 +218,10 @@ test("atomic scans keep the committed sidebar visible and roll back failed repla
     await database.replaceTracks(root.id, [record("New")], { fileCount: 1, successCount: 1 });
     await database.commitAtomicScan(root.id);
     assert.deepEqual((await database.loadGames()).map((game) => game.name), ["New"]);
+    assert.equal(await database.deadSourceCount(), 1);
+    assert.equal(await database.deadTrackCount(), 1);
+    assert.deepEqual(await database.deleteDeadSources(), { purgedSourceCount: 1, purgedTrackCount: 1 });
+    assert.deepEqual((await database.loadGames()).map((game) => game.name), ["New"]);
     assert.equal(database.lastAtomicScanMetrics.durationMs >= 0, true);
     assert.equal(database.lastAtomicScanMetrics.databaseBytes > 0, true);
     await database.close();

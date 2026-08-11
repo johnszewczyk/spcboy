@@ -529,6 +529,12 @@ function renderTree() {
   databaseConsoleGroups = [];
   selectedBrowserButton = null;
   resetSidebarContent();
+  if (state.folderSidebarError) {
+    const error = document.createElement("div");
+    error.className = "empty sidebar-empty sidebar-error";
+    error.textContent = state.folderSidebarError;
+    refs.treeRoot.appendChild(error);
+  }
   const visibleTree = filteredTree();
   if (visibleTree.length === 0) {
     const empty = document.createElement("div");
@@ -792,6 +798,7 @@ function updateSidebarSearch(query) {
   const folderGeneration = ++state.folderSearchGeneration;
   const databaseGeneration = ++state.databaseSearchGeneration;
   state.folderSearchEntries = null;
+  state.folderSidebarError = "";
   state.databaseSearchGames = state.sidebarMode === "database" ? immediateDatabaseSearch(state.sidebarQuery) : null;
   window.clearTimeout(sidebarSearchTimer);
   renderSidebar();
@@ -823,9 +830,16 @@ function updateSidebarSearch(query) {
         // Unscanned paths retain the existing raw-tree filter. Indexed results
         // add descendants that were not previously unfolded in Folder view.
         state.folderSearchEntries = Array.isArray(entries) && entries.length ? entries : null;
+        state.folderSidebarError = "";
         renderSidebar();
       })
-      .catch((error) => console.error("[SPCBoy] indexed sidebar search failed", error));
+      .catch((error) => {
+        if (folderGeneration !== state.folderSearchGeneration || state.sidebarMode !== "folders") return;
+        const detail = String(error?.message || error || "Unknown database error");
+        state.folderSidebarError = `Could not search indexed folders: ${detail}`;
+        console.error("[SPCBoy] indexed sidebar search failed", error);
+        renderTree();
+      });
   }, 120);
 }
 

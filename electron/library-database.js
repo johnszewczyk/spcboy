@@ -313,6 +313,10 @@ class LibraryDatabase {
         SELECT t.id
         FROM tracks t JOIN library_roots r ON r.id=t.root_id
         WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation<>r.active_scan_generation
+          AND NOT EXISTS (
+            SELECT 1 FROM dead_sources d
+            WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path)
+          )
         LIMIT 5000;
       `, true);
       if (!rows.length) break;
@@ -321,7 +325,12 @@ class LibraryDatabase {
     }
     await run(this.databasePath, `
       DELETE FROM library_scan_outcomes
-      WHERE root_id=${sqlNumber(rootId)} AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)});
+      WHERE root_id=${sqlNumber(rootId)}
+        AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)})
+        AND NOT EXISTS (
+          SELECT 1 FROM dead_sources d
+          WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path
+        );
       DELETE FROM scan_generation_sources
       WHERE root_id=${sqlNumber(rootId)} AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)});
     `);
@@ -884,7 +893,7 @@ class LibraryDatabase {
   }
 
   async deadTrackCount() {
-    return Number((await run(this.databasePath, `SELECT COUNT(*) AS count FROM tracks t JOIN library_roots r ON r.id=t.root_id WHERE t.scan_generation=r.active_scan_generation AND EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path));`, true))[0]?.count || 0);
+    return Number((await run(this.databasePath, `SELECT COUNT(*) AS count FROM tracks t WHERE EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path));`, true))[0]?.count || 0);
   }
 
   async deleteDeadSources() {

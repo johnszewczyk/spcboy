@@ -40,6 +40,7 @@ const state = {
   databaseSearchGames: null,
   databaseSearchGeneration: 0,
   databaseSidebarError: "",
+  folderSidebarError: "",
   selectedDatabaseGameKey: null,
   selectedDatabaseConsoleName: null,
   selectedFolderPath: null,

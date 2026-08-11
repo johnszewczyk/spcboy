@@ -16,8 +16,8 @@
 ## Invariants
 
 - The database lives in Electron's user-data directory as `Library.sqlite`.
-- A root scan replaces live records for that root transactionally while retaining records marked in `dead_sources`.
-- WAL readers keep the previous committed library visible while the scanner's writer holds one outer transaction. Bounded track/outcome batches use savepoints; tracks, FTS rows, game projection, outcomes, and root statistics publish together or roll back together.
+- A root scan writes a self-contained generation while retaining records marked in `dead_sources`.
+- WAL readers use query-only worker lanes and keep the active generation visible while bounded staged batches commit. Tracks, FTS rows, outcomes, and discovered sources become visible only when a short publish savepoint switches the root generation and game projection; failure deletes the staged generation.
 - Game rows are root-scoped by `root_id + browser_game + browser_system`. Same-title/same-console records in different library roots remain separate, and database activation binds that exact tuple.
 - Existing committed records remain available if a scan fails before its transaction commits.
 - A single archive listing failure is retained as a root scan warning without discarding successfully indexed files from the same root.
@@ -28,7 +28,7 @@
 - The schema stores library roots, indexed tracks, and inspected metadata.
 - `game_sidebar_buckets` is the durable root-scoped Database sidebar projection. An unfiltered sidebar read uses this projection rather than grouping every track; FTS search resolves matching bucket identities and joins them back to the projection for counts.
 - SQLite schema additions inspect `PRAGMA table_info` before each `ALTER TABLE`; an unexpected migration error is fatal and must not be caught as though the column already existed.
-- Database sidebar/search and game activation use separate worker connections from the serialized writer. WAL preserves a committed snapshot while preventing stale search work from blocking activation.
+- Database sidebar/search and game activation use query-only worker connections separate from the serialized writer. WAL preserves a committed snapshot, and `latest-request-coalescer.js` discards superseded pending searches so stale typing cannot block the final query or activation.
 - `tracks.browser_game` and `tracks.browser_system` store the normalized sidebar bucket at scan time. For a collection source, a recognized terminal filename tag (for example `[PS1]`) determines its console; otherwise a console-named parent folder does. Decoder probe labels are never console identity. The composite `tracks_browser_bucket_index` supports exact root-scoped game activation; do not rebuild game identity from `track_metadata` during selection.
 - Existing databases populate empty buckets once in `browser-buckets-v1`, then receive the one-time `browser-buckets-v3` normalization. Archive containers remain one game leaf even when a subset of decoded track tags disagree. That work reads stored paths and metadata only; it does not rescan, extract, or decode audio, and it must not repeat at later launches.
 - Indexed tracks persist special payload routing, including Nintendo DS `SWAV` and raw 22,050 Hz PCM WAV recognition, so database playback retains the scanner's content-based decoder choice.
@@ -48,6 +48,7 @@
 - [library-database.js](/Users/john/Downloads/Code/SPCBoy/electron/library-database.js)
 - [sqlite-worker-client.js](/Users/john/Downloads/Code/SPCBoy/electron/sqlite-worker-client.js)
 - [sqlite-worker.js](/Users/john/Downloads/Code/SPCBoy/electron/sqlite-worker.js)
+- [latest-request-coalescer.js](/Users/john/Downloads/Code/SPCBoy/electron/latest-request-coalescer.js)
 - [main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [playlist-archive-metadata.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-archive-metadata.js)
 - [app-library.js](/Users/john/Downloads/Code/SPCBoy/web/app-library.js)

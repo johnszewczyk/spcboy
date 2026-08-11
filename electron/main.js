@@ -12,6 +12,7 @@ const { createPlaylistReader } = require("./library-playlist");
 const { createNativeAudioTools } = require("./native-audio-tools");
 const { createTrackInspector } = require("./track-inspector");
 const { createPlaylistArchiveMetadataService } = require("./playlist-archive-metadata");
+const { createLatestRequestCoalescer } = require("./latest-request-coalescer");
 
 // SPCBoy originally persisted its library, window state, and renderer settings
 // under the package-name profile. Keep that durable profile while presenting
@@ -60,6 +61,14 @@ const { readPlaylist, readPlaylistForFile } = createPlaylistReader({
 });
 let activeLibraryProgress = null;
 let nextLibraryJobId = 1;
+const searchDatabaseGames = createLatestRequestCoalescer(
+  (query) => libraryDatabase.searchGames(query),
+  []
+);
+const searchDatabaseBrowser = createLatestRequestCoalescer(
+  (rootPath, query) => libraryDatabase.searchBrowserEntries(rootPath, query),
+  []
+);
 
 function attachWebContentsDiagnostics(window, label) {
   window.webContents.on("preload-error", (_event, preloadPath, error) => {
@@ -1171,9 +1180,9 @@ ipcMain.handle("library:database-move-root", async (_event, rootId, direction) =
   return roots;
 });
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
-ipcMain.handle("library:database-search-games", async (_event, query) => libraryDatabase.searchGames(query));
+ipcMain.handle("library:database-search-games", async (_event, query) => searchDatabaseGames(query));
 ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>
-  libraryDatabase.searchBrowserEntries(normalizeFolderPath(rootPath), query));
+  searchDatabaseBrowser(normalizeFolderPath(rootPath), query));
 ipcMain.handle("library:database-game-tracks", async (_event, games) => {
   return libraryDatabase.tracksForGames(Array.isArray(games) ? games : []);
 });
