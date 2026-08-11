@@ -16,8 +16,8 @@
 
 - Time: playlist rows retain decoder-reported duration; Now Playing shows Long Play duration plus fade when enabled.
 - Long Play: manual duration and fade controls apply to every supported format.
-- Playback Speed: SPC uses libgme tempo with an exact stored numerator/denominator; decimal input is reduced to that fraction. Speed changes SPC music timing while preserving the fixed output sample rate, so a 5/4 SPC duration is four-fifths of its normal play duration before any fade.
-- Playback Speed: it is intentionally unavailable for every non-SPC route. vgmstream does not play sequenced SPC files and SPCBoy does not present source-rate override/resampling as a generic playback-speed control.
+- Playback Speed: libgme supports SPC, NSF/NSFE, GBS, HES, KSS, AY, and SAP; libvgm supports GYM, S98, VGM, and VGZ. Each encoder has an independent enable setting and accepts a reduced exact decimal or fraction.
+- Playback Speed: a speed change applies only while its compatible encoder owns the active track. Source-rate conversion for streamed formats remains playback correction, not a generic speed or pitch control.
 - Playback: native-session formats use streamed native output with seeking; OpenMPT and standard audio use chunked renderer PCM with seeking.
 - Playback: vgmstream source rates are resampled to the native 44.1 kHz stereo output, including 3DO SNDS streams that otherwise play at the wrong speed.
 - Transport: pause, stop, and track replacement use a 10 ms output de-click envelope. The envelope is too short to alter a track's musical attack; it only removes the discontinuity at the output boundary.

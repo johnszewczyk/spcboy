@@ -82,7 +82,7 @@ npm run check
 - renderer-PCM support requires `openmpt123`, `ffprobe`, and `ffmpeg` on `PATH` (override with `SPCBOY_OPENMPT123`, `SPCBOY_FFPROBE`, and `SPCBOY_FFMPEG`)
 - default library root comes from `SPCBOY_LIBRARY_ROOT` or a sibling `spcsets_extracted` directory
 - playback uses a persistent native session that streams small PCM chunks rather than pre-rendering a whole track
-- Playback Options accepts SPC-only speed as an exact decimal (`1.25`) or fraction (`5/4`) between 1/4× and 4×; the native libgme tempo control is used, and other formats remain at 1×
+- Playback Options accepts an exact decimal (`1.25`) or fraction (`5/4`) between 1/4× and 4× for libgme (SPC, NSF/NSFE, GBS, HES, KSS, AY, SAP) and libvgm (GYM, S98, VGM, VGZ); all other routes remain at 1×
 - Chromium Media Session metadata/transport handlers are published so macOS and Chromium can treat SPCBoy as an active player when possible
 
 ## Included Software

@@ -6,7 +6,7 @@
 - Progress-slider seek behavior.
 - Electron shortcuts and Media Session transport.
 
-## Current State
+## Ownership and Invariants
 
 - Bottom-bar transport exposes previous, play-pause, and next.
 - Double-clicking a playlist row starts playback.
@@ -19,7 +19,7 @@
 - Transport requests are valid only for the current visible playlist. A stale track ID must be dropped rather than falling back to the previous playlist's `currentTrackInfo`; asynchronous database-view loads are generation-guarded before replacing the visible playlist.
 - Queued Skips are a temporary transition, not a seek: the first skip applies the configured output fade to the live current track and advances by the requested delta only after that fade ends. A second skip ends the already-live source with the short de-click envelope and advances immediately. Never reload or seek a tail solely to create a queued-skip fade. Long Play affects only the ordinary duration calculation.
 
-## Rules
+## Critical Engineering Notes
 
 - Keep transport behavior aligned across renderer controls, Electron shortcuts, and Media Session.
 - Keep progress-slider seeking aligned with helper playback state.

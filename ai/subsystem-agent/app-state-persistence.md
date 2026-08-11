@@ -6,13 +6,13 @@
 - Persisted settings.
 - Selection versus current playback semantics.
 
-## Current State
+## Ownership and Invariants
 
 - The active UI state lives in the renderer `state` object in `web/app-core.js`.
 - Persisted settings are stored in browser `localStorage` under `spcboy-electron-settings`.
 - Persisted values include root path, selected folder, last selected track, timing settings, independent Sidebar/Playlist font size, color, and monospace settings, sidebar width, item spacing, Console View, and column order.
 - Play time is normalized to 30-second steps.
-- Playback speed persists as a reduced `{ numerator, denominator }` rational, not a floating-point value; the renderer broadcasts it to the separate Options window before refreshing active SPC playback.
+- libgme and libvgm playback speeds persist as separate reduced `{ numerator, denominator }` rationals, not floating-point values. Their enable settings persist independently and are broadcast to the separate Options window before only a compatible active route is refreshed.
 - Font size and sidebar width are clamped to safe UI ranges before storage.
 - `selectedTrackId` is the row selection target.
 - `currentTrackId` is the active playback row.
@@ -20,7 +20,7 @@
 - Selecting a different folder in the sidebar does not automatically stop current playback.
 - Metadata hydration for older playlist generations is ignored once a newer metadata token exists. Archive hydration returns only to the generation that requested it, while matching indexed rows persist the refreshed metadata through the main process.
 
-## Rules
+## Critical Engineering Notes
 
 - Treat renderer state as the active UI-state authority.
 - Keep selection separate from current playback.

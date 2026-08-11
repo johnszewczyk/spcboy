@@ -7,7 +7,7 @@
 - Fade behavior.
 - Helper-inspected duration rules.
 
-## Current State
+## Ownership and Invariants
 
 - `Time` is the active user-facing timing control.
 - Playback time is persisted and normalized in 30-second increments.
@@ -20,7 +20,7 @@
 - A speed edit persists and broadcasts immediately, but only restarts active playback when that encoder is enabled and owns the active track. Toggling an encoder may restart that encoder's active track once to apply or remove tempo.
 - Fade remains output-time duration, while the pre-fade SPC content duration scales with tempo.
 
-## Rules
+## Critical Engineering Notes
 
 - Keep timing behavior separate from shell layout and playlist behavior.
 - Keep timing persistence aligned with renderer settings state.

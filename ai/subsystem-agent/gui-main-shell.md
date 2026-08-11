@@ -7,7 +7,7 @@
 - Bottom transport and progress bar.
 - Options window placement.
 
-## Current State
+## Ownership and Invariants
 
 - The window is a two-region layout with a left sidebar and right content area.
 - The sidebar runs full height and contains the search field and recursive folder tree.
@@ -18,7 +18,7 @@
 - Theme owns persisted sidebar/playlist appearance controls and the shared CSS Accent Color. Accent values are validated by the renderer with `CSS.supports("color", value)` and broadcast to the other app window through the narrow appearance IPC surface.
 - Options navigation order is alphabetical: Database, Library, Playback, Routing, Theme.
 
-## Rules
+## Critical Engineering Notes
 
 - Treat the Electron window and web renderer as the active UI implementation.
 - Keep layout notes aligned with `web/index.html` and `web/styles.css`.

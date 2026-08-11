@@ -6,7 +6,7 @@
 - Column default values.
 - Column order persistence.
 
-## Current State
+## Ownership and Invariants
 
 - Current visible columns are `#`, `File`, `Title`, `Game`, `Artist`, `System`, `Path`, and `Length`.
 - `#` is the 1-based row index within the selected folder.
@@ -20,7 +20,7 @@
 - Auto-sizing gives the playlist table the measured content width; wide playlists use the existing horizontal scroller instead of squeezing every column back into the viewport.
 - Filename ascending is the default playlist sort; clicking a header toggles ascending and descending order.
 
-## Rules
+## Critical Engineering Notes
 
 - Keep column behavior aligned with the actual renderer table.
 - Treat metadata hydration as display enrichment, not a playlist-source change.

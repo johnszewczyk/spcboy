@@ -6,7 +6,7 @@
 - Native helper build path.
 - Local launch and syntax-check workflow.
 
-## Current State
+## Ownership and Lifecycle
 
 - The active desktop app is Electron.
 - `electron/main.js` is the process entry point configured by `package.json`.
@@ -18,7 +18,7 @@
 - `native/libvgm-tool` is a renderer-owned PCM helper; `native/lazyusf-tool` remains the metadata/raw-decoder utility while `native/libgme-tool` owns native libgme and lazyusf2 transport playback.
 - OpenMPT and standard audio renderer-PCM paths use the launch-environment commands `openmpt123`, `ffprobe`, and `ffmpeg`; `SPCBOY_OPENMPT123`, `SPCBOY_FFPROBE`, and `SPCBOY_FFMPEG` override their command names.
 - `./launch.sh` is the local launcher.
-- The launch script validates `package.json`, sets a default `SPCBoy_LIBRARY_ROOT`, installs Electron dependencies if missing, incrementally builds the native helper graph, then builds `dist/SPCBoy.app` from Electron's macOS bundle.
+- The launch script validates `package.json`, honors `SPCBOY_LIBRARY_ROOT` when set, installs Electron dependencies if missing, incrementally builds the native helper graph, then builds `dist/SPCBoy.app` from Electron's macOS bundle.
 - The built application contains the active `electron/`, `web/`, and `native/` runtime trees beneath `Contents/Resources/app`; it is not a loose renderer staging directory.
 - Before replacing the generated app, launch stops only a runtime whose command line names the old loose bundle or the generated SPCBoy app path. It refuses to replace a runtime still in use, preventing partial asset replacement.
 - Launch opens the generated macOS application with `open -n`.
@@ -31,7 +31,7 @@
 - Native helper scripts compare their output against the build script and vendored source tree, so unchanged mGBA, 2SF, vgmstream, Play!, libvgm, and lazyusf dependencies are skipped. The final `libgme-tool` link also checks the dependency archives it consumes. Set `SPCBOY_FORCE_NATIVE_REBUILD=1` to force every native helper to rebuild.
 - The repository is GPLv3, while incorporated and invoked third-party software retains its own license terms. `THIRD_PARTY_LICENSES.md` is the source-and-notice inventory; the README provides a short public source map.
 
-## Rules
+## Critical Engineering Notes
 
 - Keep Electron and playback-runtime notes together so agents do not assume an older JS-only backend.
 - Keep helper build and launch staging aligned with the active playback architecture.

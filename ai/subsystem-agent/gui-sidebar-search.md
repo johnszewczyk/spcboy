@@ -6,7 +6,7 @@
 - Renderer-side tree filtering.
 - Search-result visibility behavior.
 
-## Current State
+## Ownership and Invariants
 
 - Sidebar search filters the already-built renderer tree rather than rescanning disk.
 - Search matches folder names and preserves ancestors of matching nodes.
@@ -15,7 +15,7 @@
 - Database-mode rows are built once per loaded database result set; keystrokes update row visibility and selection state in place.
 - Search itself does not interrupt playback.
 
-## Rules
+## Critical Engineering Notes
 
 - Keep sidebar search renderer-side unless there is a strong reason to push it into Electron.
 - Do not turn search into a filesystem rescan per keystroke.

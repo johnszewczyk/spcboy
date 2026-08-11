@@ -6,7 +6,7 @@
 - Default-root resolution.
 - Root and selected-folder restore.
 
-## Current State
+## Ownership and Lifecycle
 
 - Root library is chosen through a native Electron open dialog that accepts either a folder or a file path.
 - Database root addition uses a native folder-only multi-selection dialog and returns the resolved, de-duplicated root paths to the renderer.
@@ -17,7 +17,7 @@
 - Default root lookup uses `SPCBOY_LIBRARY_ROOT` when valid.
 - If that environment variable is absent or invalid, the app uses the sibling `spcsets_extracted` directory next to the app path when present.
 
-## Rules
+## Critical Engineering Notes
 
 - Keep root selection behavior explicit.
 - Keep default-root resolution aligned with launch behavior.

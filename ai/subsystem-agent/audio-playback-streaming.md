@@ -6,7 +6,7 @@
 - Streamed PCM flow.
 - Seek rebuild behavior.
 
-## Current State
+## Ownership and Invariants
 
 - Playback uses the local native helper for native-session backends and the renderer PCM scheduler for explicitly declared renderer-PCM backends.
 - `electron/playback-core.js` defines backend ownership for libgme, libvgm, lazyusf2, Highly Complete, OpenMPT, standard audio, 2SF, vgmstream, and Play! PSF.
@@ -23,7 +23,7 @@
 - Native-session tracks treat the helper as the playback authority; renderer-PCM tracks treat the coordinator's scheduled decoded chunks as the playback authority.
 - `native/native_decoder.h` defines the worker-owned decoder contract for create-time backend state, timing configuration, seek, signed 16-bit rendering, end detection, played-frame reporting, and destruction.
 - libgme and lazyusf2 are adapted behind that contract in `native/libgme_tool.c`; the realtime audio callback remains isolated from all decoder calls.
-- SPC playback may pass a reduced tempo rational to the native player. The helper applies it through libgme `gme_set_tempo()` before loading/priming output; its native snapshot reports the active numerator and denominator. No other native decoder consumes this field.
+- libgme and libvgm playback may pass their separately configured reduced tempo rationals to the native player. The helper applies the selected backend's supported rate control before loading/priming output; its native snapshot reports the active numerator and denominator. No other native decoder consumes this field.
 - libvgm and Highly Complete are also adapted behind that contract; the realtime audio callback remains isolated from all decoder calls.
 - Playback starts by priming the helper ring buffer before output begins.
 - Seeking rebuilds playback from the requested time offset.
@@ -37,7 +37,7 @@
 - Native helper/runtime ownership persists across ordinary renderer transitions. Track replacement stops and clears the decoder/ring only after the output has reached silence; it does not close and recreate the helper/audio runtime each time.
 - `electron/native-audio-tools.js` owns the native/external helper command surface and format-specific aliases. Its `native-helper-client.js` dependency owns framing, helper lifetime, and coalesced native-state requests; `electron/main.js` only supplies IPC and window integration.
 
-## Rules
+## Critical Engineering Notes
 
 - Treat the helper-owned native playback engine as the active playback contract.
 - Keep helper state and renderer playback state aligned.

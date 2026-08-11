@@ -6,7 +6,7 @@
 - Folder selection.
 - Tree expansion and selection visibility.
 
-## Current State
+## Ownership and Invariants
 
 - The sidebar tree is a lazy file browser: the current root is the top-level node, folders load their immediate children when expanded, and supported files appear as file nodes beneath their parent.
 - Opening or dropping a path explicitly selects the Folders view and clears a persisted Database-view selection so the raw folder browser is visible.
@@ -26,7 +26,7 @@
 - The sidebar/playlist boundary is a 1px `rgb(30 30 30)` drag handle with a wider invisible hit target. Dragging updates the CSS width directly; it persists on release without rebuilding the sidebar or playlist.
 - Main-window startup and raw-tree refresh restore browser state without constructing a playlist. Playlist/archive enumeration is reserved for explicit folder/file activation, keeping large roots from blocking the initial UI.
 
-## Rules
+## Critical Engineering Notes
 
 - Treat a branch click as browser selection/folding only. A final leaf click previews its playable content; only double-click, Enter, or an explicit context action starts playback.
 - Keep playlist scope per selected folder unless the app explicitly changes that model.

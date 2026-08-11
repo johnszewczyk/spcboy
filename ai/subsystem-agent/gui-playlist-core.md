@@ -6,7 +6,7 @@
 - Row activation.
 - Current-row versus selected-row behavior.
 
-## Current State
+## Ownership and Invariants
 
 - The playlist data source is the selected folder only.
 - The playlist does not recurse into descendant folders.
@@ -21,7 +21,7 @@
 - Current playing row may remain accented even if selection moves elsewhere.
 - Previous and next wrap within the current selected-folder playlist.
 
-## Rules
+## Critical Engineering Notes
 
 - Treat this as a simple folder playlist, not a full playlist editor.
 - Do not describe richer playlist-editing behavior as live unless the app actually exposes it.
