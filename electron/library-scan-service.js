@@ -202,7 +202,6 @@ async function scanLibraryRoot({
     }
 
     const reusableArchiveRecords = [];
-    const reusedArchivePaths = new Set();
     const physicalSources = await discoverPhysicalSources(resolvedRoot, {
       job,
       onProgress: ({ folderPath, visitedFolders, discoveredFiles }) => {
@@ -235,7 +234,6 @@ async function scanLibraryRoot({
       physicalSources.map((source) => source.archivePath || source.path)
     );
 
-    const reusedLoosePaths = new Set();
     const physicalSourcesNeedingExpansion = [];
     for (const source of physicalSources) {
       if (!source.archivePath) {
@@ -259,7 +257,6 @@ async function scanLibraryRoot({
       }
       if (reusable) {
         reusableArchiveRecords.push(...reusable);
-        reusedArchivePaths.add(source.archivePath);
       } else {
         physicalSourcesNeedingExpansion.push(source);
       }
@@ -379,7 +376,6 @@ async function scanLibraryRoot({
         );
         if (reusableRecords) {
           recordsBySource[index] = reusableRecords;
-          reusedLoosePaths.add(source.path);
           publishScanProgress(source, index);
           continue;
         }
@@ -494,11 +490,9 @@ async function scanLibraryRoot({
     }
     throwIfCancelled(job);
     const allRecords = [...reusableArchiveRecords, ...recordsBySource.flat()];
-    const replaceSources = physicalSources.map((source) => source.archivePath ? { archivePath: source.archivePath } : { path: source.path });
-    const useSourceScopedReplacement = replaceSources.length <= 5000;
-    const records = useSourceScopedReplacement
-      ? allRecords.filter((record) => record.archivePath ? !reusedArchivePaths.has(record.archivePath) : !reusedLoosePaths.has(record.path))
-      : allRecords;
+    // A generation is self-contained: unchanged reusable records are copied
+    // into the staged generation so publication is one root-pointer switch.
+    const records = allRecords;
     const scanLog = [...scanWarnings, ...scanErrors];
     const needsRescan = scanOutcomes.some((outcome) => {
       const archiveMember = Boolean(outcome.identity?.archiveEntry);
@@ -515,9 +509,7 @@ async function scanLibraryRoot({
       outcomes: scanOutcomes,
       outcomeSummary: scanSummary,
       needsRescan,
-      replaceSources: useSourceScopedReplacement ? replaceSources.filter((source) => source.archivePath
-        ? !reusedArchivePaths.has(source.archivePath)
-        : !reusedLoosePaths.has(source.path)) : null
+      replaceSources: null
     });
     await database.commitAtomicScan(root.id);
     const rootRows = await database.loadRoots();

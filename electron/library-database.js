@@ -1,5 +1,6 @@
 const path = require("path");
 const fs = require("fs").promises;
+const { randomUUID } = require("crypto");
 const { normalizeArchiveEntry } = require("./archive-path");
 const { SqliteWorkerClient } = require("./sqlite-worker-client");
 
@@ -126,8 +127,9 @@ function gameSidebarBucketStatements(rootIds = null) {
     `DELETE FROM game_sidebar_buckets WHERE ${rootPredicate};`,
     `INSERT INTO game_sidebar_buckets(root_id, browser_game, browser_system, track_count)
      SELECT t.root_id, t.browser_game, t.browser_system, COUNT(*)
-     FROM tracks t
+     FROM tracks t JOIN library_roots r ON r.id=t.root_id
      WHERE ${trackPredicate}
+       AND t.scan_generation=r.active_scan_generation
        AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
      GROUP BY t.root_id, t.browser_game, t.browser_system;`
   ];
@@ -200,6 +202,8 @@ class LibraryDatabase {
   constructor(databasePath) {
     this.databasePath = databasePath;
     this.atomicScanRootId = null;
+    this.atomicScanGeneration = null;
+    this.atomicScanStats = null;
     this.atomicScanStartedAt = null;
     this.lastAtomicScanMetrics = null;
   }
@@ -213,33 +217,114 @@ class LibraryDatabase {
 
   async beginAtomicScan(rootId) {
     if (this.atomicScanRootId !== null) throw new Error("An atomic library scan is already active");
-    await run(this.databasePath, "BEGIN IMMEDIATE;");
     this.atomicScanRootId = Number(rootId);
+    this.atomicScanGeneration = randomUUID();
+    this.atomicScanStats = null;
     this.atomicScanStartedAt = process.hrtime.bigint();
   }
 
   async commitAtomicScan(rootId) {
     if (this.atomicScanRootId !== Number(rootId)) throw new Error("Atomic library scan root does not match the active transaction");
-    await run(this.databasePath, "COMMIT;");
+    const generation = this.atomicScanGeneration;
+    const stats = this.atomicScanStats;
+    if (!generation || !stats) throw new Error("Atomic library scan has no staged database result");
+    await runInSavepoint(this.databasePath, `
+      INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at)
+      SELECT t.root_id, COALESCE(t.archive_path, t.path), ${sqlNumber(Date.now() / 1000)}
+      FROM tracks t JOIN library_roots r ON r.id=t.root_id
+      WHERE t.root_id=${sqlNumber(rootId)}
+        AND t.scan_generation=r.active_scan_generation
+        AND NOT EXISTS (
+          SELECT 1 FROM scan_generation_sources s
+          WHERE s.root_id=t.root_id AND s.scan_generation=${sqlText(generation)}
+            AND s.path=COALESCE(t.archive_path, t.path)
+        )
+      GROUP BY t.root_id, COALESCE(t.archive_path, t.path);
+      DELETE FROM dead_sources
+      WHERE root_id=${sqlNumber(rootId)} AND EXISTS (
+        SELECT 1 FROM scan_generation_sources s
+        WHERE s.root_id=dead_sources.root_id AND s.scan_generation=${sqlText(generation)} AND s.path=dead_sources.path
+      );
+      DELETE FROM game_sidebar_buckets WHERE root_id=${sqlNumber(rootId)};
+      INSERT INTO game_sidebar_buckets(root_id, browser_game, browser_system, track_count)
+      SELECT t.root_id, t.browser_game, t.browser_system, COUNT(*)
+      FROM tracks t
+      WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation=${sqlText(generation)}
+        AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
+      GROUP BY t.root_id, t.browser_game, t.browser_system;
+      UPDATE library_roots
+      SET active_scan_generation=${sqlText(generation)},
+          last_scan_completed_at=${sqlNumber(stats.completedAt)},
+          last_scan_track_count=(
+            SELECT COUNT(*) FROM tracks t
+            WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation=${sqlText(generation)}
+              AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
+          ),
+          last_scan_file_count=${sqlNumber(stats.fileCount)},
+          last_scan_success_count=${sqlNumber(stats.successCount)},
+          last_scan_error_count=${sqlNumber(stats.errorCount)},
+          last_scan_error=${stats.summary ? sqlText(stats.summary) : "NULL"},
+          last_scan_log=${stats.errorLog ? sqlText(stats.errorLog) : "NULL"},
+          needs_rescan=${stats.needsRescan ? 1 : 0}
+      WHERE id=${sqlNumber(rootId)};
+    `);
     const durationMs = this.atomicScanStartedAt === null
       ? 0
       : Number(process.hrtime.bigint() - this.atomicScanStartedAt) / 1_000_000;
     this.atomicScanRootId = null;
+    this.atomicScanGeneration = null;
+    this.atomicScanStats = null;
     this.atomicScanStartedAt = null;
     const storage = await this.databaseStorageMetrics().catch(() => ({ databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 }));
     this.lastAtomicScanMetrics = { rootId: Number(rootId), durationMs, ...storage };
     console.info(`[SPCBoy] database scan published: ${durationMs.toFixed(1)} ms, WAL ${(storage.walBytes / (1024 * 1024)).toFixed(1)} MiB`);
+    await this.cleanupObsoleteScanGenerations(rootId).catch((error) => {
+      console.warn(`[SPCBoy] obsolete scan generation cleanup failed: ${error.message}`);
+    });
   }
 
   async rollbackAtomicScan(rootId) {
     if (this.atomicScanRootId === null) return;
     if (this.atomicScanRootId !== Number(rootId)) throw new Error("Atomic library scan root does not match the active transaction");
     try {
-      await run(this.databasePath, "ROLLBACK;");
+      await this.cleanupScanGeneration(rootId, this.atomicScanGeneration);
     } finally {
       this.atomicScanRootId = null;
+      this.atomicScanGeneration = null;
+      this.atomicScanStats = null;
       this.atomicScanStartedAt = null;
     }
+  }
+
+  async cleanupScanGeneration(rootId, generation) {
+    if (!generation) return;
+    while (true) {
+      const rows = await run(this.databasePath, `SELECT id FROM tracks WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)} LIMIT 5000;`, true);
+      if (!rows.length) break;
+      const ids = rows.map((row) => sqlNumber(row.id)).join(",");
+      await runInSavepoint(this.databasePath, `DELETE FROM track_search WHERE rowid IN (${ids}); DELETE FROM tracks WHERE id IN (${ids});`);
+    }
+    await run(this.databasePath, `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)}; DELETE FROM scan_generation_sources WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)};`);
+  }
+
+  async cleanupObsoleteScanGenerations(rootId) {
+    while (true) {
+      const rows = await run(this.databasePath, `
+        SELECT t.id
+        FROM tracks t JOIN library_roots r ON r.id=t.root_id
+        WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation<>r.active_scan_generation
+        LIMIT 5000;
+      `, true);
+      if (!rows.length) break;
+      const ids = rows.map((row) => sqlNumber(row.id)).join(",");
+      await runInSavepoint(this.databasePath, `DELETE FROM track_search WHERE rowid IN (${ids}); DELETE FROM tracks WHERE id IN (${ids});`);
+    }
+    await run(this.databasePath, `
+      DELETE FROM library_scan_outcomes
+      WHERE root_id=${sqlNumber(rootId)} AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)});
+      DELETE FROM scan_generation_sources
+      WHERE root_id=${sqlNumber(rootId)} AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)});
+    `);
   }
 
   async databaseStorageMetrics() {
@@ -275,7 +360,8 @@ class LibraryDatabase {
         last_scan_success_count INTEGER NOT NULL DEFAULT 0,
         last_scan_error_count INTEGER NOT NULL DEFAULT 0,
         last_scan_log TEXT,
-        needs_rescan INTEGER NOT NULL DEFAULT 0
+        needs_rescan INTEGER NOT NULL DEFAULT 0,
+        active_scan_generation TEXT NOT NULL DEFAULT 'legacy'
       );
       CREATE TABLE IF NOT EXISTS tracks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,7 +382,8 @@ class LibraryDatabase {
         scan_completed INTEGER NOT NULL DEFAULT 0,
         scan_version INTEGER NOT NULL DEFAULT 0,
         browser_game TEXT NOT NULL DEFAULT '',
-        browser_system TEXT NOT NULL DEFAULT ''
+        browser_system TEXT NOT NULL DEFAULT '',
+        scan_generation TEXT NOT NULL DEFAULT 'legacy'
       );
       CREATE TABLE IF NOT EXISTS track_metadata (
         track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
@@ -317,7 +404,8 @@ class LibraryDatabase {
         state TEXT NOT NULL,
         duration_ms INTEGER NOT NULL DEFAULT 0,
         message TEXT NOT NULL DEFAULT '',
-        created_at REAL NOT NULL
+        created_at REAL NOT NULL,
+        scan_generation TEXT NOT NULL DEFAULT 'legacy'
       );
       CREATE TABLE IF NOT EXISTS dead_sources (
         root_id INTEGER NOT NULL REFERENCES library_roots(id) ON DELETE CASCADE,
@@ -336,6 +424,12 @@ class LibraryDatabase {
         track_count INTEGER NOT NULL,
         PRIMARY KEY(root_id, browser_game, browser_system)
       );
+      CREATE TABLE IF NOT EXISTS scan_generation_sources (
+        root_id INTEGER NOT NULL REFERENCES library_roots(id) ON DELETE CASCADE,
+        scan_generation TEXT NOT NULL,
+        path TEXT NOT NULL,
+        PRIMARY KEY(root_id, scan_generation, path)
+      );
       CREATE INDEX IF NOT EXISTS tracks_root_idx ON tracks(root_id);
       CREATE INDEX IF NOT EXISTS tracks_folder_idx ON tracks(folder_path);
       CREATE INDEX IF NOT EXISTS scan_outcomes_root_idx ON library_scan_outcomes(root_id, id);
@@ -351,6 +445,7 @@ class LibraryDatabase {
       ["tracks", "scan_version", "INTEGER NOT NULL DEFAULT 0"],
       ["tracks", "browser_game", "TEXT NOT NULL DEFAULT ''"],
       ["tracks", "browser_system", "TEXT NOT NULL DEFAULT ''"],
+      ["tracks", "scan_generation", "TEXT NOT NULL DEFAULT 'legacy'"],
       ["library_roots", "last_scan_started_at", "REAL"],
       ["library_roots", "last_scan_completed_at", "REAL"],
       ["library_roots", "last_scan_track_count", "INTEGER NOT NULL DEFAULT 0"],
@@ -359,10 +454,13 @@ class LibraryDatabase {
       ["library_roots", "last_scan_success_count", "INTEGER NOT NULL DEFAULT 0"],
       ["library_roots", "last_scan_error_count", "INTEGER NOT NULL DEFAULT 0"],
       ["library_roots", "last_scan_log", "TEXT"],
-      ["library_roots", "needs_rescan", "INTEGER NOT NULL DEFAULT 0"]
+      ["library_roots", "needs_rescan", "INTEGER NOT NULL DEFAULT 0"],
+      ["library_roots", "active_scan_generation", "TEXT NOT NULL DEFAULT 'legacy'"],
+      ["library_scan_outcomes", "scan_generation", "TEXT NOT NULL DEFAULT 'legacy'"]
     ]) {
       await addColumnIfMissing(this.databasePath, table, column, definition);
     }
+    await run(this.databasePath, "CREATE INDEX IF NOT EXISTS tracks_generation_idx ON tracks(root_id, scan_generation); CREATE INDEX IF NOT EXISTS scan_outcomes_generation_idx ON library_scan_outcomes(root_id, scan_generation, id);");
     await run(this.databasePath, "DROP INDEX IF EXISTS tracks_game_idx; CREATE INDEX IF NOT EXISTS tracks_browser_bucket_index ON tracks(root_id, browser_game, browser_system);");
     await run(this.databasePath, "CREATE VIRTUAL TABLE IF NOT EXISTS track_search USING fts5(content);");
     const browserBucketsBackfilled = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='browser-buckets-v1';", true);
@@ -396,6 +494,7 @@ class LibraryDatabase {
     }
     const gameSidebarBucketsBuilt = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='game-sidebar-buckets-v1';", true);
     if (!gameSidebarBucketsBuilt.length) await this.rebuildGameSidebarBuckets();
+    for (const root of await this.loadRoots()) await this.cleanupObsoleteScanGenerations(root.id);
   }
 
   async rebuildGameSidebarBuckets(rootIds = null) {
@@ -513,6 +612,9 @@ class LibraryDatabase {
 
   async replaceTracks(rootId, records, scanStats = {}) {
     const now = Date.now() / 1000;
+    const staged = this.atomicScanRootId === Number(rootId) && Boolean(this.atomicScanGeneration);
+    const rootState = staged ? null : (await run(this.databasePath, `SELECT active_scan_generation AS generation FROM library_roots WHERE id=${sqlNumber(rootId)};`, true))[0];
+    const scanGeneration = staged ? this.atomicScanGeneration : String(rootState?.generation || "legacy");
     const errorLog = Array.isArray(scanStats.errors) ? scanStats.errors.join("\n").slice(0, 200000) : "";
     const errorCount = Number(scanStats.errorCount) || 0;
     const summary = errorCount > 0 ? `${errorCount} file${errorCount === 1 ? "" : "s"} errored` : null;
@@ -526,15 +628,15 @@ class LibraryDatabase {
     if (archivePaths.length) outcomePredicates.push(`library_scan_outcomes.source_path IN (${archivePaths.map(sqlText).join(",")})`);
     if (loosePaths.length) outcomePredicates.push(`library_scan_outcomes.source_path IN (${loosePaths.map(sqlText).join(",")})`);
     const cleanupTrackWhere = replaceSources
-      ? `root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))${sourcePredicates.length ? ` AND (${sourcePredicates.join(" OR ")})` : " AND 0"}`
-      : `root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))`;
+      ? `root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(scanGeneration)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))${sourcePredicates.length ? ` AND (${sourcePredicates.join(" OR ")})` : " AND 0"}`
+      : `root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(scanGeneration)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))`;
     const cleanupTracks = `DELETE FROM tracks WHERE ${cleanupTrackWhere};`;
     const cleanupSearch = `DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE ${cleanupTrackWhere});`;
     const cleanupOutcomes = replaceSources
-      ? `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)}${outcomePredicates.length ? ` AND (${outcomePredicates.join(" OR ")})` : " AND 0"};`
-      : `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path);`;
-    await runInSavepoint(this.databasePath, [cleanupSearch, cleanupTracks, cleanupOutcomes]);
-    const insertTrackSQL = "INSERT INTO tracks(root_id, folder_path, path, filename, extension, backend_id, track_index, track_count, file_size, modified_at, discovered_at, special_audio_kind, archive_path, archive_entry, archive_signature, source_signature, scan_completed, scan_version, browser_game, browser_system) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+      ? `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(scanGeneration)}${outcomePredicates.length ? ` AND (${outcomePredicates.join(" OR ")})` : " AND 0"};`
+      : `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(scanGeneration)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path);`;
+    if (!staged) await runInSavepoint(this.databasePath, [cleanupSearch, cleanupTracks, cleanupOutcomes]);
+    const insertTrackSQL = "INSERT INTO tracks(root_id, folder_path, path, filename, extension, backend_id, track_index, track_count, file_size, modified_at, discovered_at, special_audio_kind, archive_path, archive_entry, archive_signature, source_signature, scan_completed, scan_version, browser_game, browser_system, scan_generation) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     const insertMetadataSQL = "INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) VALUES(last_insert_rowid(), ?, ?, ?, ?, ?, ?);";
     const insertSearchSQL = `INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE t.id=last_insert_rowid();`;
     for (let index = 0; index < records.length; index += 1000) {
@@ -550,7 +652,7 @@ class LibraryDatabase {
             record.archiveEntry ? normalizeArchiveEntry(record.archiveEntry) : null,
             record.archiveSignature || null, record.sourceSignature || null,
             record.scanCompleted ? 1 : 0, Number(record.scanVersion) || 0,
-            browserGameForRecord(record), browserSystemForRecord(record)
+            browserGameForRecord(record), browserSystemForRecord(record), scanGeneration
           ]
         });
         if (record.metadata) {
@@ -566,7 +668,7 @@ class LibraryDatabase {
       }
       await runInSavepoint(this.databasePath, () => runPreparedBatch(this.databasePath, commands));
     }
-    const insertOutcomeSQL = "INSERT INTO library_scan_outcomes(root_id, source_path, archive_entry, backend_id, stage, state, duration_ms, message, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);";
+    const insertOutcomeSQL = "INSERT INTO library_scan_outcomes(root_id, source_path, archive_entry, backend_id, stage, state, duration_ms, message, created_at, scan_generation) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     const outcomeCommands = [];
     for (const outcome of Array.isArray(scanStats.outcomes) ? scanStats.outcomes : []) {
       outcomeCommands.push({
@@ -575,7 +677,7 @@ class LibraryDatabase {
           Number(rootId), String(outcome.identity?.sourcePath || ""),
           outcome.identity?.archiveEntry ? normalizeArchiveEntry(outcome.identity.archiveEntry) : null,
           outcome.route?.backendId || null, String(outcome.stage || ""), String(outcome.state || ""),
-          Number(outcome.durationMs) || 0, String(outcome.message || ""), now
+          Number(outcome.durationMs) || 0, String(outcome.message || ""), now, scanGeneration
         ]
       });
     }
@@ -583,7 +685,19 @@ class LibraryDatabase {
       const commands = outcomeCommands.slice(index, index + 2000);
       await runInSavepoint(this.databasePath, () => runPreparedBatch(this.databasePath, commands));
     }
-    await runInSavepoint(this.databasePath, `${gameSidebarBucketStatements([rootId]).join("\n")} UPDATE library_roots SET last_scan_completed_at=${sqlNumber(now)}, last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))), last_scan_file_count=${sqlNumber(scanStats.fileCount)}, last_scan_success_count=${sqlNumber(scanStats.successCount)}, last_scan_error_count=${sqlNumber(errorCount)}, last_scan_error=${summary ? sqlText(summary) : "NULL"}, last_scan_log=${errorLog ? sqlText(errorLog) : "NULL"}, needs_rescan=${scanStats.needsRescan ? 1 : 0} WHERE id=${sqlNumber(rootId)};`);
+    if (staged) {
+      this.atomicScanStats = {
+        completedAt: now,
+        fileCount: Number(scanStats.fileCount) || 0,
+        successCount: Number(scanStats.successCount) || 0,
+        errorCount,
+        summary,
+        errorLog,
+        needsRescan: Boolean(scanStats.needsRescan)
+      };
+      return;
+    }
+    await runInSavepoint(this.databasePath, `${gameSidebarBucketStatements([rootId]).join("\n")} UPDATE library_roots SET last_scan_completed_at=${sqlNumber(now)}, last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation=${sqlText(scanGeneration)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))), last_scan_file_count=${sqlNumber(scanStats.fileCount)}, last_scan_success_count=${sqlNumber(scanStats.successCount)}, last_scan_error_count=${sqlNumber(errorCount)}, last_scan_error=${summary ? sqlText(summary) : "NULL"}, last_scan_log=${errorLog ? sqlText(errorLog) : "NULL"}, needs_rescan=${scanStats.needsRescan ? 1 : 0} WHERE id=${sqlNumber(rootId)};`);
   }
 
   async indexedTrackRecords(rootId) {
@@ -596,8 +710,10 @@ class LibraryDatabase {
              m.track_id AS metadataTrackId, m.title, m.game, m.artist, m.system,
              m.play_length_ms AS playLengthMs
       FROM tracks t
+      JOIN library_roots r ON r.id=t.root_id
       LEFT JOIN track_metadata m ON m.track_id=t.id
       WHERE t.root_id=${sqlNumber(rootId)}
+        AND t.scan_generation=r.active_scan_generation
         AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
       ORDER BY t.path, t.track_index;
     `, true);
@@ -616,16 +732,17 @@ class LibraryDatabase {
           ? `archive_path IS NULL AND path=${sqlText(update.path)} AND track_index=${sqlNumber(update.trackIndex)}`
           : null;
       if (!predicate) continue;
-      changedPredicates.push(`(${predicate})`);
+      const activePredicate = `(${predicate}) AND scan_generation=(SELECT active_scan_generation FROM library_roots WHERE id=tracks.root_id)`;
+      changedPredicates.push(`(${activePredicate})`);
       // Queue-time tag hydration must preserve the source-derived console
       // bucket. Build each update from the existing source columns in SQL,
       // then repair its normalized identity in the next scan/initialization.
       // A tag may improve a game title, but must never turn PS1 into "SEGA".
       const browserGame = usableMetadataValue(metadata.game);
-      statements.push(`UPDATE tracks SET browser_game=CASE WHEN ${sqlText(browserGame)} <> '' THEN ${sqlText(browserGame)} ELSE browser_game END WHERE ${predicate};`);
-      statements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) SELECT id, ${sqlText(metadata.title)}, ${sqlText(metadata.game)}, ${sqlText(metadata.artist)}, ${sqlText(metadata.system)}, ${sqlNumber(metadata.playLengthMs)}, ${sqlNumber(now)} FROM tracks WHERE ${predicate} ON CONFLICT(track_id) DO UPDATE SET title=excluded.title, game=excluded.game, artist=excluded.artist, system=excluded.system, play_length_ms=excluded.play_length_ms, metadata_scanned_at=excluded.metadata_scanned_at;`);
-      statements.push(`DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE ${predicate});`);
-      statements.push(`INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE ${predicate};`);
+      statements.push(`UPDATE tracks SET browser_game=CASE WHEN ${sqlText(browserGame)} <> '' THEN ${sqlText(browserGame)} ELSE browser_game END WHERE ${activePredicate};`);
+      statements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) SELECT id, ${sqlText(metadata.title)}, ${sqlText(metadata.game)}, ${sqlText(metadata.artist)}, ${sqlText(metadata.system)}, ${sqlNumber(metadata.playLengthMs)}, ${sqlNumber(now)} FROM tracks WHERE ${activePredicate} ON CONFLICT(track_id) DO UPDATE SET title=excluded.title, game=excluded.game, artist=excluded.artist, system=excluded.system, play_length_ms=excluded.play_length_ms, metadata_scanned_at=excluded.metadata_scanned_at;`);
+      statements.push(`DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE ${activePredicate});`);
+      statements.push(`INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE ${activePredicate.replaceAll("tracks.", "t.")};`);
     }
     if (!statements.length) return;
     const changedRoots = await run(this.databasePath, `SELECT DISTINCT root_id AS rootId FROM tracks WHERE ${changedPredicates.join(" OR ")};`, true);
@@ -640,6 +757,7 @@ class LibraryDatabase {
              message, created_at AS createdAt
       FROM library_scan_outcomes
       WHERE root_id=${sqlNumber(rootId)}
+        AND scan_generation=(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)})
       ORDER BY id;
     `, true);
   }
@@ -656,8 +774,9 @@ class LibraryDatabase {
   async indexedSources() {
     return run(this.databasePath, `
       SELECT t.root_id AS rootId, COALESCE(t.archive_path, t.path) AS path
-      FROM tracks t
-      WHERE NOT EXISTS (
+      FROM tracks t JOIN library_roots r ON r.id=t.root_id
+      WHERE t.scan_generation=r.active_scan_generation
+        AND NOT EXISTS (
         SELECT 1 FROM dead_sources d
         WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path)
       )
@@ -668,6 +787,18 @@ class LibraryDatabase {
 
   async restoreSources(sources) {
     if (!sources.length) return;
+    if (this.atomicScanRootId !== null) {
+      const commands = [...new Set(sources.map((source) => String(source.path || "")))]
+        .filter(Boolean)
+        .map((sourcePath) => ({
+          sql: "INSERT OR IGNORE INTO scan_generation_sources(root_id, scan_generation, path) VALUES(?, ?, ?);",
+          params: [this.atomicScanRootId, this.atomicScanGeneration, sourcePath]
+        }));
+      for (let index = 0; index < commands.length; index += 2000) {
+        await runPreparedBatch(this.databasePath, commands.slice(index, index + 2000));
+      }
+      return;
+    }
     const sourceRows = sources.map((source) => `(${sqlNumber(source.rootId)}, ${sqlText(source.path)})`).join(",");
     const rootIds = sources.map((source) => source.rootId);
     await runInSavepoint(this.databasePath, `
@@ -681,9 +812,20 @@ class LibraryDatabase {
   }
 
   async markUndiscoveredSourcesDead(rootId, livePaths) {
+    if (this.atomicScanRootId !== null) {
+      if (this.atomicScanRootId !== Number(rootId)) throw new Error("Staged source root does not match the active scan");
+      const commands = [...new Set(livePaths.map(String))].filter(Boolean).map((sourcePath) => ({
+        sql: "INSERT OR IGNORE INTO scan_generation_sources(root_id, scan_generation, path) VALUES(?, ?, ?);",
+        params: [this.atomicScanRootId, this.atomicScanGeneration, sourcePath]
+      }));
+      for (let index = 0; index < commands.length; index += 2000) {
+        await runPreparedBatch(this.databasePath, commands.slice(index, index + 2000));
+      }
+      return;
+    }
     const values = [...new Set(livePaths)].map((value) => sqlText(value)).join(",");
     if (!values) {
-      await runInSavepoint(this.databasePath, `INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at) SELECT DISTINCT root_id, COALESCE(archive_path, path), ${sqlNumber(Date.now() / 1000)} FROM tracks WHERE root_id=${sqlNumber(rootId)}; ${gameSidebarBucketStatements([rootId]).join("\n")}`);
+      await runInSavepoint(this.databasePath, `INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at) SELECT DISTINCT t.root_id, COALESCE(t.archive_path, t.path), ${sqlNumber(Date.now() / 1000)} FROM tracks t JOIN library_roots r ON r.id=t.root_id WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation=r.active_scan_generation; ${gameSidebarBucketStatements([rootId]).join("\n")}`);
       return;
     }
     await runInSavepoint(this.databasePath, `
@@ -692,7 +834,9 @@ class LibraryDatabase {
       INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at)
       SELECT DISTINCT t.root_id, COALESCE(t.archive_path, t.path), ${sqlNumber(Date.now() / 1000)}
       FROM tracks t
+      JOIN library_roots r ON r.id=t.root_id
       WHERE t.root_id=${sqlNumber(rootId)}
+        AND t.scan_generation=r.active_scan_generation
         AND NOT EXISTS (SELECT 1 FROM live_scan_sources s WHERE s.path=COALESCE(t.archive_path, t.path));
       DROP TABLE live_scan_sources;
       ${gameSidebarBucketStatements([rootId]).join("\n")}
@@ -720,7 +864,7 @@ class LibraryDatabase {
         INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at)
         SELECT root_id, path, ${sqlNumber(Date.now() / 1000)} FROM mark_missing_sources;
         UPDATE library_roots
-        SET last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=library_roots.id AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))),
+        SET last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=library_roots.id AND t.scan_generation=library_roots.active_scan_generation AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))),
             needs_rescan=1
         WHERE id IN (SELECT DISTINCT root_id FROM mark_missing_sources);
         DROP TABLE mark_missing_sources;
@@ -736,11 +880,11 @@ class LibraryDatabase {
   }
 
   async trackCount() {
-    return Number((await run(this.databasePath, "SELECT COUNT(*) AS count FROM tracks t WHERE NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path));", true))[0]?.count || 0);
+    return Number((await run(this.databasePath, "SELECT COUNT(*) AS count FROM tracks t JOIN library_roots r ON r.id=t.root_id WHERE t.scan_generation=r.active_scan_generation AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path));", true))[0]?.count || 0);
   }
 
   async deadTrackCount() {
-    return Number((await run(this.databasePath, `SELECT COUNT(*) AS count FROM tracks t WHERE EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path));`, true))[0]?.count || 0);
+    return Number((await run(this.databasePath, `SELECT COUNT(*) AS count FROM tracks t JOIN library_roots r ON r.id=t.root_id WHERE t.scan_generation=r.active_scan_generation AND EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path));`, true))[0]?.count || 0);
   }
 
   async deleteDeadSources() {
@@ -761,14 +905,14 @@ class LibraryDatabase {
       DELETE FROM dead_sources;
       ${gameSidebarBucketStatements().join("\n")}
       UPDATE library_roots
-      SET last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=library_roots.id), needs_rescan=1;
+      SET last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=library_roots.id AND t.scan_generation=library_roots.active_scan_generation), needs_rescan=1;
       COMMIT;
     `);
     return { purgedSourceCount: count, purgedTrackCount: trackCount };
   }
 
   async clearDatabase() {
-    const trackCount = Number((await run(this.databasePath, "SELECT COUNT(*) AS count FROM tracks;", true))[0]?.count || 0);
+    const trackCount = await this.trackCount();
     await run(this.databasePath, `
       BEGIN TRANSACTION;
       DELETE FROM library_scan_outcomes;
@@ -795,6 +939,7 @@ class LibraryDatabase {
         LEFT JOIN track_metadata m ON m.track_id=t.id
         JOIN track_search ON track_search.rowid=t.id
         WHERE r.is_enabled=1
+          AND t.scan_generation=r.active_scan_generation
           AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
           AND track_search MATCH ${sqlText(ftsQuery(terms))}
       )` : "";
@@ -851,6 +996,7 @@ class LibraryDatabase {
       LEFT JOIN track_metadata m ON m.track_id=t.id
       JOIN track_search ON track_search.rowid=t.id
       WHERE r.is_enabled=1
+        AND t.scan_generation=r.active_scan_generation
         AND (t.folder_path=${sqlText(normalizedRootPath)} OR t.folder_path LIKE ${sqlText(`${normalizedRootPath}${path.sep}%`)})
         AND NOT EXISTS (
           SELECT 1 FROM dead_sources d
@@ -882,7 +1028,8 @@ class LibraryDatabase {
       FROM tracks t JOIN library_roots r ON r.id=t.root_id
       JOIN selected_games s ON s.root_id=t.root_id AND s.browser_game=t.browser_game AND s.browser_system=t.browser_system
       LEFT JOIN track_metadata m ON m.track_id=t.id
-      WHERE r.is_enabled=1 AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
+      WHERE r.is_enabled=1 AND t.scan_generation=r.active_scan_generation
+        AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
       ORDER BY lower(COALESCE(m.game, '')), lower(COALESCE(m.title, '')), t.path, t.track_index;
     `, true, "activation");
   }

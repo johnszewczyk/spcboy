@@ -196,12 +196,25 @@ test("atomic scans keep the committed sidebar visible and roll back failed repla
     assert.deepEqual((await database.loadGames()).map((game) => game.name), ["Old"]);
 
     await database.beginAtomicScan(root.id);
+    await database.restoreSources([{ rootId: root.id, path: record("Uncommitted").path }]);
     await database.replaceTracks(root.id, [record("Uncommitted")], { fileCount: 1, successCount: 1 });
     assert.deepEqual((await database.loadGames()).map((game) => game.name), ["Old"]);
+    const observer = new SqliteWorkerClient(database.databasePath, { queryOnly: true });
+    const generations = await observer.query(`
+      SELECT t.scan_generation AS generation, COUNT(*) AS count,
+             t.scan_generation=r.active_scan_generation AS active
+      FROM tracks t JOIN library_roots r ON r.id=t.root_id
+      WHERE t.root_id=${root.id}
+      GROUP BY t.scan_generation, active
+      ORDER BY active DESC;
+    `);
+    await observer.close();
+    assert.deepEqual(generations.map((row) => [Number(row.active), Number(row.count)]), [[1, 1], [0, 1]]);
     await database.rollbackAtomicScan(root.id);
     assert.deepEqual((await database.loadGames()).map((game) => game.name), ["Old"]);
 
     await database.beginAtomicScan(root.id);
+    await database.restoreSources([{ rootId: root.id, path: record("New").path }]);
     await database.replaceTracks(root.id, [record("New")], { fileCount: 1, successCount: 1 });
     await database.commitAtomicScan(root.id);
     assert.deepEqual((await database.loadGames()).map((game) => game.name), ["New"]);
