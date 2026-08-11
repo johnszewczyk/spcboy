@@ -205,6 +205,7 @@ class LibraryDatabase {
     this.atomicScanGeneration = null;
     this.atomicScanStats = null;
     this.atomicScanStartedAt = null;
+    this.atomicScanInitialStorage = null;
     this.lastAtomicScanMetrics = null;
   }
 
@@ -217,6 +218,7 @@ class LibraryDatabase {
 
   async beginAtomicScan(rootId) {
     if (this.atomicScanRootId !== null) throw new Error("An atomic library scan is already active");
+    this.atomicScanInitialStorage = await this.databaseStorageMetrics().catch(() => ({ databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 }));
     this.atomicScanRootId = Number(rootId);
     this.atomicScanGeneration = randomUUID();
     this.atomicScanStats = null;
@@ -228,6 +230,7 @@ class LibraryDatabase {
     const generation = this.atomicScanGeneration;
     const stats = this.atomicScanStats;
     if (!generation || !stats) throw new Error("Atomic library scan has no staged database result");
+    const publishStartedAt = process.hrtime.bigint();
     await runInSavepoint(this.databasePath, `
       INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at)
       SELECT t.root_id, COALESCE(t.archive_path, t.path), ${sqlNumber(Date.now() / 1000)}
@@ -268,19 +271,29 @@ class LibraryDatabase {
           needs_rescan=${stats.needsRescan ? 1 : 0}
       WHERE id=${sqlNumber(rootId)};
     `);
-    const durationMs = this.atomicScanStartedAt === null
+    const publishCompletedAt = process.hrtime.bigint();
+    const stagingDurationMs = this.atomicScanStartedAt === null
       ? 0
-      : Number(process.hrtime.bigint() - this.atomicScanStartedAt) / 1_000_000;
+      : Number(publishStartedAt - this.atomicScanStartedAt) / 1_000_000;
+    const publishDurationMs = Number(publishCompletedAt - publishStartedAt) / 1_000_000;
+    const initialStorage = this.atomicScanInitialStorage || { databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 };
     this.atomicScanRootId = null;
     this.atomicScanGeneration = null;
     this.atomicScanStats = null;
     this.atomicScanStartedAt = null;
-    const storage = await this.databaseStorageMetrics().catch(() => ({ databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 }));
-    this.lastAtomicScanMetrics = { rootId: Number(rootId), durationMs, ...storage };
-    console.info(`[SPCBoy] database scan published: ${durationMs.toFixed(1)} ms, WAL ${(storage.walBytes / (1024 * 1024)).toFixed(1)} MiB`);
+    this.atomicScanInitialStorage = null;
+    const cleanupStartedAt = process.hrtime.bigint();
     await this.cleanupObsoleteScanGenerations(rootId).catch((error) => {
       console.warn(`[SPCBoy] obsolete scan generation cleanup failed: ${error.message}`);
     });
+    const cleanupDurationMs = Number(process.hrtime.bigint() - cleanupStartedAt) / 1_000_000;
+    const storage = await this.databaseStorageMetrics().catch(() => ({ databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 }));
+    const durationMs = stagingDurationMs + publishDurationMs + cleanupDurationMs;
+    this.lastAtomicScanMetrics = {
+      rootId: Number(rootId), durationMs, stagingDurationMs, publishDurationMs, cleanupDurationMs,
+      ...storage, walGrowthBytes: storage.walBytes - initialStorage.walBytes
+    };
+    console.info(`[SPCBoy] database scan: stage ${stagingDurationMs.toFixed(1)} ms, publish ${publishDurationMs.toFixed(1)} ms, cleanup ${cleanupDurationMs.toFixed(1)} ms, WAL growth ${this.lastAtomicScanMetrics.walGrowthBytes} bytes`);
   }
 
   async rollbackAtomicScan(rootId) {
@@ -293,6 +306,7 @@ class LibraryDatabase {
       this.atomicScanGeneration = null;
       this.atomicScanStats = null;
       this.atomicScanStartedAt = null;
+      this.atomicScanInitialStorage = null;
     }
   }
 

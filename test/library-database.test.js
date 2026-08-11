@@ -223,6 +223,10 @@ test("atomic scans keep the committed sidebar visible and roll back failed repla
     assert.deepEqual(await database.deleteDeadSources(), { purgedSourceCount: 1, purgedTrackCount: 1 });
     assert.deepEqual((await database.loadGames()).map((game) => game.name), ["New"]);
     assert.equal(database.lastAtomicScanMetrics.durationMs >= 0, true);
+    assert.equal(database.lastAtomicScanMetrics.stagingDurationMs >= 0, true);
+    assert.equal(database.lastAtomicScanMetrics.publishDurationMs >= 0, true);
+    assert.equal(database.lastAtomicScanMetrics.cleanupDurationMs >= 0, true);
+    assert.equal(Number.isFinite(database.lastAtomicScanMetrics.walGrowthBytes), true);
     assert.equal(database.lastAtomicScanMetrics.databaseBytes > 0, true);
     await database.close();
   } finally {
