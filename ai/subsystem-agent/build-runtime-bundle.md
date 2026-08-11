@@ -29,6 +29,7 @@
 - The libgme helper is created lazily on the first metadata/native-playback request; raw folder browsing does not start it.
 - `npm run check` syntax-checks the active JS entry points.
 - Native helper scripts compare their output against the build script and vendored source tree, so unchanged mGBA, 2SF, vgmstream, Play!, libvgm, and lazyusf dependencies are skipped. The final `libgme-tool` link also checks the dependency archives it consumes. Set `SPCBOY_FORCE_NATIVE_REBUILD=1` to force every native helper to rebuild.
+- The repository is GPLv3, while incorporated and invoked third-party software retains its own license terms. `THIRD_PARTY_LICENSES.md` is the source-and-notice inventory; the README provides a short public source map.
 
 ## Rules
 
@@ -39,6 +40,8 @@
 ## Files
 
 - [package.json](/Users/john/Downloads/Code/SPCBoy/package.json)
+- [LICENSE](/Users/john/Downloads/Code/SPCBoy/LICENSE)
+- [THIRD_PARTY_LICENSES.md](/Users/john/Downloads/Code/SPCBoy/THIRD_PARTY_LICENSES.md)
 - [launch.sh](/Users/john/Downloads/Code/SPCBoy/launch.sh)
 - [scripts/build-libgme-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-libgme-helper.sh)
 - [scripts/build-lazyusf-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-lazyusf-helper.sh)

@@ -3,6 +3,8 @@
 `SPCBoy` is an Electron desktop app for browsing extracted game-music folders and playing one selected folder at a time.
 The live UI is pure Electron plus web tech, with game formats decoded by a local native helper and rendered PCM formats decoded in short chunks before playback through the macOS audio engine.
 
+SPCBoy is released under the [GNU GPL version 3](LICENSE). The project incorporates and invokes third-party audio, archive, database, and application-runtime software under each component's own license; see [Third-Party Licenses](THIRD_PARTY_LICENSES.md).
+
 ## Current Layout
 
 - Left pane: recursive folder sidebar with search
@@ -82,3 +84,22 @@ npm run check
 - playback uses a persistent native session that streams small PCM chunks rather than pre-rendering a whole track
 - Playback Options accepts SPC-only speed as an exact decimal (`1.25`) or fraction (`5/4`) between 1/4× and 4×; the native libgme tempo control is used, and other formats remain at 1×
 - Chromium Media Session metadata/transport handlers are published so macOS and Chromium can treat SPCBoy as an active player when possible
+
+## Included Software
+
+SPCBoy includes source from the following projects, or uses the named tools from the local runtime. Their licenses and notices remain authoritative; this list is a convenient source map, not a replacement for [Third-Party Licenses](THIRD_PARTY_LICENSES.md).
+
+| Software | Role in SPCBoy | Source |
+| --- | --- | --- |
+| Electron | macOS app shell and isolated renderer runtime | [electron/electron](https://github.com/electron/electron) |
+| libgme | SPC and other sequenced game-music playback | [libgme/game-music-emu](https://github.com/libgme/game-music-emu) |
+| libvgm | VGM, VGZ, GYM, and S98 playback | [ValleyBell/libvgm](https://github.com/ValleyBell/libvgm) |
+| lazyusf2 and psflib | Nintendo 64 USF playback support | [kode54/lazyusf2](https://gitlab.com/kode54/lazyusf2) |
+| mGBA / Highly Complete | Game Boy Advance GSF playback | [mgba-emu/mgba](https://github.com/mgba-emu/mgba) |
+| 2sf2wav / DeSmuME | Nintendo DS 2SF playback | [2sf2wav source](https://bitbucket.org/ahigerd/2sf2wav) |
+| vgmstream | Streamed game-audio formats | [vgmstream/vgmstream](https://github.com/vgmstream/vgmstream) |
+| Play! | PlayStation PSF and PSF2 playback support | [jpd002/Play-](https://github.com/jpd002/Play-) |
+| libopenmpt | XM decoding through `openmpt123` | [libopenmpt](https://lib.openmpt.org/libopenmpt/) |
+| FFmpeg | Standard-audio decoding through `ffmpeg` and `ffprobe` | [FFmpeg](https://ffmpeg.org/) |
+| SQLite | Persistent library index | [SQLite](https://sqlite.org/) |
+| libarchive, 7-Zip, and Zstandard | Archive listing and materialization | [libarchive](https://libarchive.org/), [7-Zip](https://www.7-zip.org/), [Zstandard](https://github.com/facebook/zstd) |
