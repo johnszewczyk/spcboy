@@ -25,8 +25,8 @@
 ## Critical Engineering Notes
 
 - The schema stores library roots, indexed tracks, and inspected metadata.
-- `tracks.browser_game` and `tracks.browser_system` store the normalized sidebar bucket at scan time. The composite `tracks_browser_bucket_index` supports exact root-scoped game activation; do not rebuild game identity from `track_metadata` during selection.
-- Existing databases populate empty browser buckets once in the `browser-buckets-v1` schema-state transaction. That work reads stored paths and metadata only; it does not rescan, extract, or decode audio, and it must not repeat at later launches.
+- `tracks.browser_game` and `tracks.browser_system` store the normalized sidebar bucket at scan time. For a collection source, a recognized terminal filename tag (for example `[PS1]`) determines its console; otherwise a console-named parent folder does. Decoder probe labels are never console identity. The composite `tracks_browser_bucket_index` supports exact root-scoped game activation; do not rebuild game identity from `track_metadata` during selection.
+- Existing databases populate empty buckets once in `browser-buckets-v1`, then receive the one-time `browser-buckets-v3` normalization. Archive containers remain one game leaf even when a subset of decoded track tags disagree. That work reads stored paths and metadata only; it does not rescan, extract, or decode audio, and it must not repeat at later launches.
 - Indexed tracks persist special payload routing, including Nintendo DS `SWAV` and raw 22,050 Hz PCM WAV recognition, so database playback retains the scanner's content-based decoder choice.
 - Scanning expands libgme multi-track files into one record per internal track, preserving `track_index` and `track_count` for database loading and playback.
 - The existing folder-tree browser remains the active main sidebar; Options / Library is limited to root selection and scan controls. Options / Database owns database statistics and maintenance actions.
@@ -34,7 +34,7 @@
 - Queue-time metadata updates only matching existing `tracks` rows; it upserts `track_metadata` without changing `scan_completed`, scan signatures, or retry state.
 - Database mode defaults to expandable console groups; the Console View setting controls whether those parent disclosure rows are shown or the game list is flattened.
 - Root removal explicitly deletes that root's indexed tracks before deleting the root record.
-- Folder-view search first retains its in-memory raw-tree result, then asks the indexed database across every enabled root for matching descendants by filename, archive entry, title, game, artist, or system. Whitespace-separated query terms match independently, so a user need not reproduce a tag's exact punctuation or word order. The renderer rebuilds only compact ancestor paths for indexed sources; it does not recursively unfold or rescan the filesystem per keystroke.
+- `track_search` is the persistent FTS index for filename, source/archive path, archive entry, bucket names, and scanned tags. Folder search scopes FTS matches to the active Folder root; Database search scopes them to enabled roots and returns whole game buckets. The renderer immediately filters its loaded game buckets, then replaces that optimistic subset with the FTS-complete result. Never reintroduce a concatenated `LIKE '%term%'` table scan on each keystroke.
 - Libgme playback commands receive the stored track index so NSF/GBS internal tracks start at the selected song rather than always starting at track zero.
 
 ## Files

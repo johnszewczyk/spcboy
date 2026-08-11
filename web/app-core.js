@@ -37,6 +37,8 @@ const state = {
   sidebarMode: "folders",
   consoleViewEnabled: true,
   databaseGames: [],
+  databaseSearchGames: null,
+  databaseSearchGeneration: 0,
   selectedDatabaseGameKey: null,
   selectedDatabaseConsoleName: null,
   selectedFolderPath: null,
@@ -60,6 +62,8 @@ const state = {
   playlistFontSizePt: 10,
   playlistTextColor: "#a9a9a9",
   playlistMonospace: false,
+  applicationMonospace: false,
+  playlistHeaderBold: false,
   sidebarWidthPercent: 20,
   accentColor: "lightskyblue",
   routingPreferences: {},
@@ -171,6 +175,8 @@ const refs = {
   playlistFontSizeInput: document.getElementById("playlist-font-size-input"),
   playlistTextColorInput: document.getElementById("playlist-text-color-input"),
   playlistMonospaceCheckbox: document.getElementById("playlist-monospace-checkbox"),
+  applicationMonospaceCheckbox: document.getElementById("application-monospace-checkbox"),
+  playlistHeaderBoldCheckbox: document.getElementById("playlist-header-bold-checkbox"),
   columnAutoSizeCheckbox: document.getElementById("column-auto-size-checkbox"),
   sidebarWidthInput: document.getElementById("sidebar-width-input"),
   accentColorInput: document.getElementById("accent-color-input"),
@@ -194,6 +200,7 @@ const refs = {
   previousButton: document.getElementById("previous-button"),
   playButton: document.getElementById("play-button"),
   nextButton: document.getElementById("next-button"),
+  equalizerToolbarButton: document.getElementById("equalizer-toolbar-button"),
   nativeDiagnostics: document.getElementById("native-diagnostics"),
   nativeTransportLabel: document.getElementById("native-transport-label"),
   nativeTrackLabel: document.getElementById("native-track-label"),
@@ -250,6 +257,8 @@ function loadSettings() {
     state.playlistFontSizePt = normalizeFontSize(parsed.playlistFontSizePt ?? parsed.uiFontSizePt);
     state.playlistTextColor = normalizeFontColor(parsed.playlistTextColor);
     state.playlistMonospace = Boolean(parsed.playlistMonospace);
+    state.applicationMonospace = Boolean(parsed.applicationMonospace);
+    state.playlistHeaderBold = Boolean(parsed.playlistHeaderBold);
     state.sidebarWidthPercent = normalizeSidebarWidth(parsed.sidebarWidthPercent);
     state.accentColor = normalizeAccentColor(parsed.accentColor);
     state.routingPreferences = parsed.routingPreferences && typeof parsed.routingPreferences === "object" ? { ...parsed.routingPreferences } : {};
@@ -298,6 +307,8 @@ function persistSettings() {
     playlistFontSizePt: state.playlistFontSizePt,
     playlistTextColor: state.playlistTextColor,
     playlistMonospace: state.playlistMonospace,
+    applicationMonospace: state.applicationMonospace,
+    playlistHeaderBold: state.playlistHeaderBold,
     sidebarWidthPercent: state.sidebarWidthPercent,
     accentColor: state.accentColor,
     routingPreferences: state.routingPreferences,

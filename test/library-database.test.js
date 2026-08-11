@@ -314,6 +314,98 @@ test("finds indexed descendants for Folder view search before their browser bran
     assert.equal((await database.searchBrowserEntries(rootPath, "title screen")).length, 1);
     assert.equal((await database.searchBrowserEntries(rootPath, "jenga nintendo")).length, 1);
     assert.equal((await database.searchBrowserEntries(rootPath, "missing")).length, 0);
+
+    const otherRootPath = path.join(fixtureRoot, "other-library");
+    const otherRoot = await database.ensureRoot(otherRootPath);
+    const otherFolderPath = path.join(otherRootPath, "Nintendo DS", "Jenga World Tour");
+    const otherPath = path.join(otherFolderPath, "other.xa");
+    await database.replaceTracks(otherRoot.id, [{
+      folderPath: otherFolderPath,
+      path: otherPath,
+      filename: "other.xa",
+      extension: ".xa",
+      trackIndex: 0,
+      trackCount: 1,
+      fileSize: 1,
+      modifiedAt: 1,
+      scanCompleted: true,
+      scanVersion: 1,
+      metadata: { title: "Other Title", game: "Jenga World Tour", artist: "Other", system: "Nintendo DS", playLengthMs: 1000 }
+    }], { fileCount: 1, successCount: 1 });
+    assert.deepEqual((await database.searchBrowserEntries(rootPath, "jenga world")).map((entry) => entry.rootPath), [rootPath]);
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("normalizes JoshW archive names and console tags, and keeps Folder and Database searches aligned", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-library-search-parity-"));
+  try {
+    const database = new LibraryDatabase(path.join(fixtureRoot, "Library.sqlite"));
+    await database.initialize();
+    const rootPath = path.join(fixtureRoot, "audio", "JoshW");
+    const root = await database.ensureRoot(rootPath);
+    const folderPath = path.join(rootPath, "Sony PlayStation");
+    const archivePath = path.join(folderPath, "Silent Hill (1999-03-04)(KCE Tokyo)(Konami)[PS1].tar.zst");
+    await database.replaceTracks(root.id, [{
+      folderPath,
+      path: `${archivePath}#BGM/intro.xa`,
+      filename: "intro.xa",
+      extension: ".xa",
+      archivePath,
+      archiveEntry: "BGM/intro.xa",
+      trackIndex: 0,
+      trackCount: 1,
+      fileSize: 1,
+      modifiedAt: 1,
+      scanCompleted: false,
+      scanVersion: 1,
+      // This is representative of a failed XA materialization in the old
+      // scanner: neither value is suitable for the sidebar's game identity.
+      metadata: { title: "", game: "spcboy-scan-scratch-abc", artist: "", system: "Sony XA header", playLengthMs: 0 }
+    }], { fileCount: 1, successCount: 0 });
+
+    const games = await database.searchGames("silent hill");
+    assert.deepEqual(games.map((game) => ({ name: game.name, system: game.system, rootName: game.rootName })), [{
+      name: "Silent Hill (1999-03-04)(KCE Tokyo)(Konami)",
+      system: "Sony PlayStation",
+      rootName: "JoshW"
+    }]);
+    assert.equal(games[0].name.includes(fixtureRoot), false);
+
+    const folderEntries = await database.searchBrowserEntries(rootPath, "silent hill");
+    assert.equal(folderEntries.length, 1);
+    assert.deepEqual(await database.searchGames("silent hill sony"), games);
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("batches retained missing sources and excludes them from later Test Files work", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-library-missing-sources-"));
+  try {
+    const database = new LibraryDatabase(path.join(fixtureRoot, "Library.sqlite"));
+    await database.initialize();
+    const root = await database.ensureRoot(path.join(fixtureRoot, "library"));
+    const records = Array.from({ length: 501 }, (_, index) => ({
+      folderPath: path.join(fixtureRoot, "library"),
+      path: path.join(fixtureRoot, "library", `missing-${index}.vgm`),
+      filename: `missing-${index}.vgm`,
+      extension: ".vgm",
+      trackIndex: 0,
+      trackCount: 1,
+      fileSize: 1,
+      modifiedAt: 1,
+      scanCompleted: true,
+      scanVersion: 1,
+      metadata: { title: "", game: "", artist: "", system: "", playLengthMs: 0 }
+    }));
+    await database.replaceTracks(root.id, records, { fileCount: records.length, successCount: records.length });
+    const sources = await database.indexedSources();
+    assert.equal(sources.length, 501);
+    assert.equal((await database.markSourcesDead(sources)).markedSourceCount, 501);
+    assert.equal(await database.deadSourceCount(), 501);
+    assert.deepEqual(await database.indexedSources(), []);
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }

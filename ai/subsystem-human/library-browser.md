@@ -9,7 +9,7 @@
 
 ## Search
 
-- Search: finds indexed file names, archive entries, and scanned tags even when their Folder-view branch has not yet been opened, then shows the matching path and source under its ancestors.
+- Search: finds indexed file names, source/archive paths, archive entries, and scanned tags under the active Folder root even when their branch has not yet been opened, then shows the matching path and source under its ancestors. Database and Folder search use the same word-by-word matching rules.
 - Search: expands matching branches automatically.
 - Search: does not interrupt playback.
 
@@ -37,7 +37,7 @@
 - Test Files: checks indexed source-path existence without rescanning metadata. Missing sources are hidden from the active library until rediscovered or removed with Clear Unlinked.
 - Options / Database: shows library and archive-cache statistics. Archive Cache can be retained for repeat playback, disabled for disposable playback materialization, sized to a selected automatic limit, or cleared while playback is stopped.
 - Database: ZIP-, 7z-, RSN-, and TZST-contained supported audio files appear as playable indexed tracks, including expanded internal songs from multi-track NSF and GBS files.
-- Database mode: search filters the loaded game list immediately without rescanning the library; a game leaf previews its indexed tracks on selection, while console headings are expandable/collapsible and activate only with Enter or double-click. Same-title games from separate library paths remain distinct and load only that root's indexed tracks.
+- Database mode: search queries indexed game buckets without rescanning the library; a game leaf previews its indexed tracks on selection, while console headings are expandable/collapsible and activate only with Enter or double-click. Console headings use a recognized collection tag such as `[PS1]`, then the collection's console folder when no tag exists. Same-title games from separate library paths remain distinct and load only that root's indexed tracks.
 - Console View: database games are grouped under expandable console headings by default, while the option can flatten the list without changing search or activation behavior.
 - Playback Options: App Volume controls SPCBoy output only; Equalizer exposes ten shared 31 Hz–16 kHz parametric bands at ±12 dB and applies to renderer and native playback paths.
 

@@ -7,6 +7,25 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-folder-tree" viewBox="0 0 24 24"><path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z" /><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z" /><path d="M3 5a2 2 0 0 0 2 2h3" /><path d="M3 3v13a2 2 0 0 0 2 2h3" /></symbol>
+      <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5V19A9 3 0 0 0 21 19V5" /><path d="M3 12A9 3 0 0 0 21 12" /></symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol>
+      <symbol id="icon-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3" /><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" /><circle cx="18" cy="5" r="3" /></symbol>
+      <symbol id="icon-palette" viewBox="0 0 24 24"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" /><circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /></symbol>
+      <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6" /><path d="M9 13h6" /><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
+      <symbol id="icon-check-check" viewBox="0 0 24 24"><path d="M18 6 7 17l-5-5" /><path d="m22 10-7.5 7.5L13 16" /></symbol>
+      <symbol id="icon-scan-search" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><circle cx="12" cy="12" r="3" /><path d="m16 16-1.9-1.9" /></symbol>
+      <symbol id="icon-file-search" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><circle cx="11.5" cy="14.5" r="2.5" /><path d="M13.3 16.3 15 18" /></symbol>
+      <symbol id="icon-scroll-text" viewBox="0 0 24 24"><path d="M15 12h-5" /><path d="M15 8h-5" /><path d="M19 17V5a2 2 0 0 0-2-2H4" /><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" /></symbol>
+      <symbol id="icon-trash-2" viewBox="0 0 24 24"><path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></symbol>
+      <symbol id="icon-sliders-horizontal" viewBox="0 0 24 24"><path d="M10 5H3" /><path d="M12 19H3" /><path d="M14 3v4" /><path d="M16 17v4" /><path d="M21 12h-9" /><path d="M21 19h-5" /><path d="M21 5h-7" /><path d="M8 10v4" /><path d="M8 12H3" /></symbol>
+      <symbol id="icon-skip-back" viewBox="0 0 24 24"><path d="M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z" /><path d="M3 20V4" /></symbol>
+      <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /><rect x="5" y="3" width="5" height="18" rx="1" /></symbol>
+      <symbol id="icon-skip-forward" viewBox="0 0 24 24"><path d="M21 4v16" /><path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z" /></symbol>
+      <symbol id="icon-infinity" viewBox="0 0 24 24"><path d="M6 16c5 0 7-8 12-8a4 4 0 0 1 0 8c-5 0-7-8-12-8a4 4 0 1 0 0 8" /></symbol>
+      <symbol id="icon-repeat-2" viewBox="0 0 24 24"><path d="m2 9 3-3 3 3" /><path d="M13 18H7a2 2 0 0 1-2-2V6" /><path d="m22 15-3 3-3-3" /><path d="M11 6h6a2 2 0 0 1 2 2v10" /></symbol>
+    </svg>
     <div class="app-shell">
       <main class="workspace">
         <aside class="sidebar">
@@ -14,8 +33,8 @@
             <input id="sidebar-search-input" class="sidebar-search-input" type="search" placeholder="Search" />
             <div class="sidebar-search-actions">
               <div class="sidebar-view-actions" role="tablist" aria-label="Library views">
-              <button id="sidebar-folders-button" class="sidebar-mode-button" type="button" title="Folders" aria-label="Folders">F</button>
-              <button id="sidebar-database-button" class="sidebar-mode-button" type="button" title="Database" aria-label="Database">D</button>
+              <button id="sidebar-folders-button" class="sidebar-mode-button" type="button" title="Folders" aria-label="Folders"><svg class="ui-icon" aria-hidden="true"><use href="#icon-folder-tree"></use></svg></button>
+              <button id="sidebar-database-button" class="sidebar-mode-button" type="button" title="Database" aria-label="Database"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg></button>
               </div>
               <div class="sidebar-fold-actions" role="group" aria-label="Fold current view">
                 <button id="database-expand-all-button" class="sidebar-mode-button database-tree-control" type="button" title="Expand all" aria-label="Expand all">+</button>
@@ -62,11 +81,12 @@
                 <span id="playlist-total-label" class="time-label">0:00</span>
               </div>
               <div class="transport">
-                <button id="previous-button" class="tool-button glyph-button ui-control" title="Previous" aria-label="Previous">⏮</button>
-                <button id="play-button" class="tool-button glyph-button ui-control is-primary" title="Play / Pause" aria-label="Play / Pause">⏵</button>
-                <button id="next-button" class="tool-button glyph-button ui-control" title="Next" aria-label="Next">⏭</button>
-                <button id="long-play-button" class="tool-button glyph-button ui-control" type="button" title="Toggle Long Play" aria-label="Toggle Long Play">∞</button>
-                <button id="repeat-button" class="tool-button glyph-button ui-control" type="button" title="Repeat off" aria-label="Repeat off">↻</button>
+                <button id="previous-button" class="tool-button glyph-button ui-control" title="Previous" aria-label="Previous"><svg class="ui-icon" aria-hidden="true"><use href="#icon-skip-back"></use></svg></button>
+                <button id="play-button" class="tool-button glyph-button ui-control is-primary" title="Play / Pause" aria-label="Play / Pause"><svg class="ui-icon" aria-hidden="true"><use href="#icon-play"></use></svg></button>
+                <button id="next-button" class="tool-button glyph-button ui-control" title="Next" aria-label="Next"><svg class="ui-icon" aria-hidden="true"><use href="#icon-skip-forward"></use></svg></button>
+                <button id="equalizer-toolbar-button" class="tool-button glyph-button ui-control" type="button" title="Enable Equalizer" aria-label="Enable Equalizer" aria-pressed="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-sliders-horizontal"></use></svg></button>
+                <button id="long-play-button" class="tool-button glyph-button ui-control" type="button" title="Toggle Long Play" aria-label="Toggle Long Play"><svg class="ui-icon" aria-hidden="true"><use href="#icon-infinity"></use></svg></button>
+                <button id="repeat-button" class="tool-button glyph-button ui-control" type="button" title="Repeat off" aria-label="Repeat off"><svg class="ui-icon" aria-hidden="true"><use href="#icon-repeat-2"></use></svg></button>
               </div>
             </div>
           </div>
@@ -83,18 +103,19 @@
 
         <div class="options-body">
           <nav class="options-nav" aria-label="Options sections">
-            <button id="options-database-tab" class="options-nav-item" type="button">Database</button>
-            <button id="options-library-tab" class="options-nav-item is-selected" type="button">Library</button>
-            <button id="options-playback-tab" class="options-nav-item" type="button">Playback</button>
-            <button id="options-routing-tab" class="options-nav-item" type="button">Routing</button>
-            <button id="options-theme-tab" class="options-nav-item" type="button">Theme</button>
+            <button id="options-database-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Database</span></button>
+            <button id="options-library-tab" class="options-nav-item is-selected" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-folder-tree"></use></svg><span>Library</span></button>
+            <button id="options-playback-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-play"></use></svg><span>Playback</span></button>
+            <button id="options-routing-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-route"></use></svg><span>Routing</span></button>
+            <button id="options-theme-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-palette"></use></svg><span>Theme</span></button>
           </nav>
 
           <div class="options-content">
             <div id="options-theme-section" class="options-page options-theme-page is-hidden">
               <div class="options-subpanel">
-                <div class="options-subpanel-title">Accent</div>
+                <div class="options-subpanel-title">Application</div>
                 <label class="options-field"><span>Accent Color</span><span class="options-inline-trailing"><input id="accent-color-input" class="options-input options-color-text-input" type="text" value="lightskyblue" placeholder="lightskyblue, #87cefa, rgb(...), oklch(...)" aria-label="Accent color CSS value" /></span></label>
+                <label class="options-field options-inline-field"><span>Monospace Font</span><input id="application-monospace-checkbox" type="checkbox" /></label>
               </div>
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Sidebar Fonts</div>
@@ -113,6 +134,7 @@
                 <label class="options-field"><span>Font Size</span><span class="options-inline-trailing"><input id="playlist-font-size-input" class="options-input" type="text" inputmode="decimal" value="10" aria-label="Playlist font size in points" /></span></label>
                 <label class="options-field"><span>Font Color</span><span class="options-inline-trailing"><input id="playlist-text-color-input" class="options-input options-color-text-input" type="text" value="#a9a9a9" placeholder="#a9a9a9, rgb(...), red" aria-label="Playlist font color CSS value" /></span></label>
                 <label class="options-field options-inline-field"><span>Monospace Font</span><input id="playlist-monospace-checkbox" type="checkbox" /></label>
+                <label class="options-field options-inline-field"><span>Bold Header Font</span><input id="playlist-header-bold-checkbox" type="checkbox" /></label>
               </div>
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Playlist Options</div>
@@ -125,10 +147,10 @@
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Library Paths</div>
                 <div class="options-library-toolbar">
-                  <button id="library-add-root-button" class="tool-button" type="button">Add Folder</button>
-                  <button id="library-toggle-roots-button" class="tool-button" type="button">Select All</button>
-                  <button id="library-scan-all-button" class="tool-button" type="button">Scan Selected</button>
-                  <button id="library-trim-missing-button" class="tool-button" type="button">Test Files</button>
+                  <button id="library-add-root-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-folder-plus"></use></svg><span>Add Folder</span></button>
+                  <button id="library-toggle-roots-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-check-check"></use></svg><span>Select All</span></button>
+                  <button id="library-scan-all-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scan-search"></use></svg><span>Scan Selected</span></button>
+                  <button id="library-trim-missing-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-file-search"></use></svg><span>Test Files</span></button>
                 </div>
                 <div id="library-root-list" class="library-root-list"></div>
               </div>
@@ -141,7 +163,7 @@
                 <div id="library-scan-status" class="library-scan-status" aria-live="polite">No scan started.</div>
                 <div id="library-scan-current-file" class="library-scan-current-file"></div>
                 <div id="library-scan-progress-bar" class="library-scan-progress-bar" role="progressbar" aria-label="Library scan progress" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span id="library-scan-progress-fill"></span></div>
-                <button id="library-cancel-button" class="tool-button library-scan-cancel-button" type="button" disabled>Cancel Scan</button>
+                <button id="library-cancel-button" class="tool-button library-scan-cancel-button is-hidden" type="button" disabled>Cancel Scan</button>
               </div>
             </div>
 
@@ -175,7 +197,6 @@
             </div>
 
             <div id="options-routing-section" class="options-page options-routing-page is-hidden">
-              <div class="options-section-title">Routing</div>
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Decoder Conflicts</div>
                 <div class="options-help-text">When installed plugins declare the same extension, scanning and playback use the same declared candidate set. This page exposes those conflicts before a per-format preference or global-priority policy is chosen.</div>
@@ -184,11 +205,14 @@
             </div>
 
             <div id="options-playback-section" class="options-page options-page-playback is-hidden">
-              <div class="options-section-title">Playback</div>
+              <div class="options-subpanel">
+                <div class="options-subpanel-title">Volume</div>
+                <div class="options-help-text">Volume applies to SPCBoy playback only. macOS volume keys continue to control system volume.</div>
+                <label class="equalizer-band equalizer-volume"><span>Volume</span><span class="range-slider"><input id="app-volume-input" class="animated-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="App volume" /><span class="range-slider-track" aria-hidden="true"><span class="range-slider-fill"></span><span class="range-slider-thumb"></span></span></span><output id="app-volume-value">100%</output></label>
+              </div>
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Equalizer</div>
-                <div class="options-help-text">Volume and equalizer gains apply to SPCBoy playback only. macOS volume keys continue to control system volume.</div>
-                <label class="equalizer-band equalizer-volume"><span>Volume</span><span class="range-slider"><input id="app-volume-input" class="animated-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="App volume" /><span class="range-slider-track" aria-hidden="true"><span class="range-slider-fill"></span><span class="range-slider-thumb"></span></span></span><output id="app-volume-value">100%</output></label>
+                <div class="options-help-text">Equalizer gains apply to SPCBoy playback only.</div>
                 <label class="options-field options-inline-field"><span>Enable Equalizer</span><input id="equalizer-enabled-checkbox" type="checkbox" /></label>
                 <div class="equalizer-bands">
                   <label class="equalizer-band"><span>31 Hz</span><span class="range-slider"><input data-equalizer-band="0" class="animated-range" type="range" min="-12" max="12" step="0.5" value="0" aria-label="31 Hz equalizer gain" /><span class="range-slider-track" aria-hidden="true"><span class="range-slider-fill"></span><span class="range-slider-thumb"></span></span></span><output data-equalizer-value="0">0.0 dB</output></label>

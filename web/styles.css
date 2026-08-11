@@ -24,7 +24,9 @@
   --playlist-font-size-pt: 10;
   --playlist-text-color: #a9a9a9;
   --playlist-font-family: var(--ui-font-family);
-  --control-background: rgb(40 40 40);
+  --app-font-family: var(--ui-font-family);
+  --playlist-header-font-weight: 400;
+  --control-background: var(--bg-chrome);
   --button-bg: var(--control-background);
   --control-radius: 5px;
   --control-height: 1.85rem;
@@ -49,7 +51,7 @@ body {
   height: 100%;
   background: var(--bg-chrome);
   color: var(--text);
-  font-family: var(--ui-font-family);
+  font-family: var(--app-font-family);
   font-size: calc(var(--ui-font-size-pt) * 1pt);
   line-height: 1.25;
   -webkit-font-smoothing: antialiased;
@@ -167,7 +169,7 @@ body.is-file-drag-over::after {
   padding: 4px 8px;
   border: 0;
   border-radius: 5px;
-  background: var(--bg-subpanel);
+  background: var(--bg-chrome);
   color: var(--sidebar-text-color);
   font: inherit;
 }
@@ -175,6 +177,11 @@ body.is-file-drag-over::after {
 .sidebar-search-actions, .sidebar-view-actions, .sidebar-fold-actions { display: flex; flex: 0 0 auto; gap: 0.25rem; }
 .sidebar-mode-button { width: 1.65rem; height: 1.65rem; padding: 0; border: 1px solid rgb(30 30 30); border-radius: 5px; background: var(--bg-chrome); color: var(--muted); cursor: pointer; }
 .sidebar-mode-button:hover, .sidebar-mode-button.is-selected { background: var(--bg-subpanel); color: var(--sidebar-text-color); }
+.icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.ui-icon { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sidebar-mode-button .ui-icon { width: 1rem; height: 1rem; vertical-align: middle; }
+.icon-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.glyph-button .ui-icon { width: 1rem; height: 1rem; vertical-align: middle; }
 .sidebar .database-game-row,
 .sidebar .database-console-row { color: var(--sidebar-text-color); }
 .database-tree-control { font-size: 1.1rem; }
@@ -325,7 +332,7 @@ body.is-file-drag-over::after {
   overflow: hidden;
   user-select: none;
   padding: 0.5rem;
-  background: rgb(20 20 20);
+  background: var(--bg-sidebar);
 }
 
 .playlist-scroll-wrap {
@@ -348,7 +355,7 @@ body.is-file-drag-over::after {
 .content-bottombar {
   display: block;
   padding: 0.5rem;
-  background: rgb(20 20 20);
+  background: var(--bg-sidebar);
   border-top: 0;
 }
 
@@ -448,6 +455,7 @@ body.is-file-drag-over::after {
   padding: 0 var(--control-padding-x);
   font-family: var(--mono-font-family);
   font-variant-numeric: tabular-nums;
+  background: var(--bg-chrome);
 }
 
 .timing-readout .time-label {
@@ -500,12 +508,14 @@ body.is-file-drag-over::after {
   user-select: none;
 }
 
+.playlist-table th { font-weight: var(--playlist-header-font-weight); }
+
 .playlist-header-label {
   display: block;
   overflow: hidden;
   padding: 4px 8px;
   border-radius: 5px;
-  background: rgb(40 40 40);
+  background: var(--bg-chrome);
   color: var(--muted);
   text-overflow: ellipsis;
 }
@@ -559,6 +569,14 @@ body.is-file-drag-over::after {
 
 .playlist-row { cursor: default; }
 
+/* Selection is drawn by the shared rounded selection indicator. Native table
+   focus rings are both redundant and visually inconsistent with that control. */
+.playlist-row:focus,
+.playlist-row:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .playlist-row:hover {
   background: transparent;
 }
@@ -583,7 +601,7 @@ body.is-file-drag-over::after {
   width: 0;
   height: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: var(--bg-subpanel);
   pointer-events: none;
   opacity: 0;
   transform: translate3d(0, 0, 0);
@@ -626,6 +644,15 @@ body.is-file-drag-over::after {
   line-height: 1;
 }
 
+#repeat-button { position: relative; }
+#repeat-button[data-repeat-mode="one"]::after {
+  content: "1";
+  position: absolute;
+  right: 0.15rem;
+  bottom: 0.1rem;
+  font: 600 0.55rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 #progress-slider {
   position: absolute;
   inset: 0;
@@ -641,7 +668,7 @@ body.is-file-drag-over::after {
 }
 
 .progress-slider-shell {
-  --slider-track-height: 2px;
+  --slider-track-height: 1px;
   --slider-thumb-size: var(--control-glyph-size);
   position: relative;
   flex: 1 1 auto;
@@ -766,6 +793,7 @@ body.is-file-drag-over::after {
   justify-content: center;
   position: relative;
   font-weight: 700;
+  color: var(--accent);
 }
 
 .options-header .tool-button {
@@ -794,6 +822,9 @@ body.is-file-drag-over::after {
 }
 
 .options-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: var(--space-1);
   border: 0;
   border-radius: 0.5rem;
@@ -868,7 +899,7 @@ body.is-file-drag-over::after {
 .options-subpanel { padding: 1rem; }
 
 .options-subpanel-title {
-  color: lightgrey;
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -1017,10 +1048,10 @@ body.options-window .options-header { display: none; }
 
 .library-scan-progress-bar {
   width: 100%;
-  max-height: 0.5rem;
+  height: 4px;
+  max-height: 4px;
   overflow: hidden;
-  border-radius: var(--control-radius);
-  background: rgb(20 20 20);
+  background: var(--bg-sidebar);
   opacity: 1;
   transform: translateY(0);
   transition: max-height 100ms cubic-bezier(0.2, 0, 0, 1), opacity 100ms ease, transform 100ms cubic-bezier(0.2, 0, 0, 1);
@@ -1180,7 +1211,7 @@ body.options-window .options-header { display: none; }
 }
 
 .options-section-title {
-  color: lightgrey;
+  color: var(--accent);
   font-weight: 700;
 }
 

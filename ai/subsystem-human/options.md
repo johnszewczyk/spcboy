@@ -3,7 +3,7 @@
 ## Library
 
 - Library: opens as the default Options section. Library Paths, Scan Options, and Scan Status are equal top-level panels, using the same panel treatment as Playlist.
-- Roots: configured library paths are listed alphabetically with a single-line Add Folder, Select All, Scan Selected, and Test Files bar; each root has Scan, Log, and Del controls.
+- Roots: configured library paths are listed alphabetically with a single-line Add Folder, Select All, Scan Selected, and Test Files bar; each root has distinct Scan, scan-log, and Delete SVG icon controls.
 - Scan log: the root row shows one-line success/error counts; Log opens only errored file lines.
 - Test Files: checks each unique indexed loose-file or archive source path, then removes tracks whose source no longer exists without reopening archives or reading metadata.
 - Test Files: updates each affected root's displayed file and track counts after pruning missing sources, while leaving the root marked for attention.
@@ -23,9 +23,11 @@
 - Play Speed: editing a disabled encoder's speed stores the next value without interrupting playback; enabling it applies the setting only when that encoder owns the active track.
 - Queued Skips: the first skip starts the configured fade from the current playback position; another skip while that temporary fade is active advances at once. Long Play only changes normal playback duration and never changes the skip target.
 - Play Stats: the dedicated panel shows live native transport, track/output state, position, buffer frames and fill, underruns, requested/supplied frames, and decode status. It remains connected when Options is open in its separate window.
-- Equalizer: the app volume control is grouped with the ten EQ bands as a full-width slider; EQ frequency and dB labels use the system fixed-width font, and range controls use a short 125ms eased visual transition for click-snapped movement.
+- Equalizer: the app volume control is grouped with the ten EQ bands as a full-width slider; EQ frequency and dB labels use the system fixed-width font, and range controls use a short 125ms eased visual transition for click-snapped movement. The lower toolbar has a synchronized sliders-icon toggle to enable or disable EQ without opening Options.
 - Play Time descriptions: Long Play is documented as “Loop song with original format control.” Fade Out is documented as “Apply transitional volume fade to song end.” Play Speed identifies each compatible encoder and accepts exact decimal or fractional input.
 - Volume shortcuts: app-level `-` and `=` keys lower or raise volume by 5% when focus is not in a text editor.
+- Playback: Volume and Equalizer are separate level-one panels, with Volume first.
+- Options panel headers use the configured accent color.
 
 ## Routing
 
@@ -35,9 +37,9 @@
 ## Theme
 
 - Theme: combines the former Sidebar and Playlist appearance controls. The Options navigation is alphabetized as Database, Library, Playback, Routing, and Theme.
-- Theme / Accent: Accent Color accepts standard CSS color syntax, including named colors, hexadecimal values, `rgb()`, `hsl()`, and modern color functions supported by the browser. It applies to shared controls, selection bars, and active indicators.
+- Theme / Application: Accent Color accepts standard CSS color syntax, including named colors, hexadecimal values, `rgb()`, `hsl()`, and modern color functions supported by the browser. Application Monospace Font changes app chrome text to the system monospace font.
 - Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, and Console View.
-- Theme / Playlist: independently adjust font size, font color, monospace mode, and item spacing.
+- Theme / Playlist: independently adjust font size, font color, monospace mode, bold header font, and item spacing.
 - Console View: enables console-grouped database game headings in the main sidebar.
 
 ## Window

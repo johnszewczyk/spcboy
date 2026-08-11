@@ -45,6 +45,7 @@ async function scanOneLibraryRoot(root, deepScan = state.libraryDeepScanEnabled)
     const result = await window.spcBoy.scanDatabaseRoot(root.path, deepScan);
     state.libraryRoots = await window.spcBoy.databaseRoots();
     state.databaseGames = await window.spcBoy.databaseGames();
+    state.databaseSearchGames = null;
     state.libraryScanStatus = scanCompleteStatus(result.trackCount, result.warningCount, result.scratch);
   } catch (error) {
     state.libraryScanStatus = error.message === "Library operation cancelled" ? "Scan cancelled." : `Scan failed • ${error.message}`;
@@ -111,7 +112,12 @@ async function moveLibraryRoot(rootId, direction) {
 async function removeLibraryRoot(rootId) {
   state.libraryRoots = await window.spcBoy.databaseRemoveRoot(rootId);
   await refreshDatabaseGamesForVisibleRoots();
-  state.libraryScanStatus = "Library folder removed.";
+  // Removing an indexed root is not a scan. Do not surface the scan-status
+  // card or its Cancel control for a completed database-only operation.
+  state.libraryScanStatus = "No scan started.";
+  state.libraryScanCurrentFile = "";
+  state.libraryScanProgress = null;
+  state.libraryOperationActive = false;
   renderAll();
 }
 
@@ -139,6 +145,7 @@ async function scanSelectedLibraries(deepScan = false) {
     const results = await window.spcBoy.scanAllDatabaseRoots(deepScan);
     state.libraryRoots = await window.spcBoy.databaseRoots();
     state.databaseGames = await window.spcBoy.databaseGames();
+    state.databaseSearchGames = null;
     const warningCount = results.reduce((sum, result) => sum + (result.warningCount || 0), 0);
     state.libraryScanStatus = scanCompleteStatus(results.reduce((sum, result) => sum + result.trackCount, 0), warningCount, results.at(-1)?.scratch);
   } catch (error) {
@@ -158,7 +165,7 @@ async function trimMissingLibrary() {
   renderAll();
   try {
     const result = await window.spcBoy.trimMissingDatabaseSources();
-    await handleLibraryDatabaseChanged(result);
+    await app.ui.handleLibraryDatabaseChanged(result);
     await refreshDatabaseMaintenanceSummary();
     state.libraryScanStatus = `Test Files • ${result.checkedSourceCount} sources checked • ${result.missingSourceCount} missing retained`;
   } catch (error) {
@@ -197,6 +204,7 @@ async function clearLibraryDatabase() {
     const result = await window.spcBoy.clearLibraryDatabase();
     state.libraryRoots = await window.spcBoy.databaseRoots();
     state.databaseGames = [];
+    state.databaseSearchGames = null;
     state.libraryScanStatus = `Database cleared • ${result.clearedTrackCount} tracks removed`;
     await refreshDatabaseMaintenanceSummary();
   } catch (error) {

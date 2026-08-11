@@ -17,7 +17,7 @@
 - Renderer-PCM fade is applied once after decode from absolute track position; backend chunk requests do not apply the global fade independently.
 - GSF and miniGSF use the mGBA-backed Highly Complete bridge, with psflib dependency resolution and native-rate audio resampled to the helper's 44.1 kHz output.
 - 2SF and mini2SF use the DeSmuME-derived 2sf2wav bridge, with complete dependency validation and native 44.1 kHz PCM output.
-- vgmstream families use the native vgmstream bridge; FFmpeg/Vorbis are codec dependencies and the active scanner list includes bank/container forms whose sibling files must remain available.
+- vgmstream families use the native vgmstream bridge; FFmpeg/Vorbis are codec dependencies and the active scanner list includes bank/container forms whose sibling files must remain available. PS2 `.xmd`/`.adp`, PSP ATRAC3 `.at3`, and PS3 Bink `.bika` have been verified by inspection and PCM decode from the local corpus; their extension admission must remain aligned between the backend registry and `libgme-tool` native route.
 - vgmstream source PCM is normalized to the helper's fixed 44.1 kHz stereo output. This source-rate conversion is required for formats such as 3DO SNDS streams that commonly decode at 22,050 Hz; direct source-frame copying makes those tracks play too fast.
 - PSF and PSF2 use the native Play! bridge; `.psflib` and `.psf2lib` siblings are kept as complete dependency families during archive playback materialization.
 - Native-session tracks treat the helper as the playback authority; renderer-PCM tracks treat the coordinator's scheduled decoded chunks as the playback authority.

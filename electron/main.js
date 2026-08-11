@@ -670,8 +670,12 @@ async function trimMissingLibrary(inheritedJob = null) {
     const source = sources[index];
     try {
       await fs.access(source.path);
-    } catch {
-      missingSources.push(source);
+    } catch (error) {
+      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+        missingSources.push(source);
+      } else {
+        throw new Error(`Cannot access indexed source: ${source.path} (${error?.code || error?.message || "unknown error"})`);
+      }
     }
     const now = Date.now();
     if (now - lastProgressAt >= 100 || index + 1 === sources.length) {
@@ -1162,6 +1166,7 @@ ipcMain.handle("library:database-set-roots-enabled", async (_event, rootIds, ena
 });
 ipcMain.handle("library:database-move-root", async (_event, rootId, direction) => libraryDatabase.moveRoot(rootId, direction));
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
+ipcMain.handle("library:database-search-games", async (_event, query) => libraryDatabase.searchGames(query));
 ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>
   libraryDatabase.searchBrowserEntries(normalizeFolderPath(rootPath), query));
 ipcMain.handle("library:database-game-tracks", async (_event, games) => {

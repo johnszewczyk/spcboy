@@ -33,9 +33,27 @@ test("routes USF-family files to lazyusf2", () => {
   assert.equal(backendForPath("track.minipsf2").id, "playpsf");
 });
 
+test("routes PlayStation 2, PSP, and PlayStation 3 streamed formats to vgmstream", () => {
+  for (const extension of [".adp", ".at3", ".bika", ".msf", ".ss2", ".svag", ".xmd", ".xvag"]) {
+    assert.equal(backendForPath(`track${extension}`).id, "vgmstream", extension);
+    assert.equal(supportsNativePlayback(`track${extension}`), true, extension);
+  }
+});
+
+test("keeps each registered PlayStation streamed extension in the native helper route", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "native", "libgme_tool.c"), "utf8");
+  const vgmstream = BACKEND_MODULES.find((backend) => backend.id === "vgmstream");
+  for (const extension of vgmstream.extensions) {
+    assert.ok(source.includes(`"${extension}"`), extension);
+  }
+});
+
 test("routes module and standard audio files to renderer PCM", () => {
   assert.equal(backendForPath("track.xm").id, "openmpt");
   assert.equal(backendForPath("track.flac").id, "standard-audio");
+  assert.equal(backendForPath("track.aac").id, "standard-audio");
+  assert.equal(backendForPath("track.mp2").id, "standard-audio");
+  assert.equal(backendForPath("track.tak").id, "standard-audio");
   assert.equal(playbackModeForPath("track.wav"), "renderer-pcm");
 });
 

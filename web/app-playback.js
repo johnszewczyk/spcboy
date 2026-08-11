@@ -458,7 +458,7 @@ function updatePlaybackReadout() {
   refs.progressSlider.value = String(currentValue);
   const percent = state.totalSeconds > 0 ? (currentValue / state.totalSeconds) * 100 : 0;
   refs.progressSliderShell.style.setProperty("--progress-percent", `${Math.max(0, Math.min(percent, 100))}%`);
-  refs.playButton.textContent = state.isPlaying ? "⏸" : "⏵";
+  refs.playButton.querySelector("use")?.setAttribute("href", state.isPlaying ? "#icon-pause" : "#icon-play");
   syncMediaSessionState();
 }
 

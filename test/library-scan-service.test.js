@@ -33,6 +33,53 @@ test("scan scratch budget refuses low-space extraction and tracks released roots
   await assert.rejects(lowDiskBudget.ensureArchiveCapacity(__filename), /only 1 bytes free/);
 });
 
+test("releases each completed archive session before the next archive consumes the scratch budget", async (t) => {
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-library-session-release-"));
+  const scratchPath = path.join(rootPath, "scratch");
+  const previousScratchRoot = process.env.SPCBOY_SCAN_SCRATCH_ROOT;
+  process.env.SPCBOY_SCAN_SCRATCH_ROOT = scratchPath;
+  t.after(async () => {
+    if (previousScratchRoot === undefined) delete process.env.SPCBOY_SCAN_SCRATCH_ROOT;
+    else process.env.SPCBOY_SCAN_SCRATCH_ROOT = previousScratchRoot;
+    await fs.rm(rootPath, { recursive: true, force: true });
+  });
+
+  const sourcePath = path.join(rootPath, "member.vgm");
+  await fs.mkdir(scratchPath, { recursive: true });
+  await fs.writeFile(sourcePath, Buffer.alloc(64 * 1024 * 1024));
+  const archivePaths = ["first.zip", "second.zip"].map((name) => path.join(rootPath, name));
+  await Promise.all(archivePaths.map((archivePath) => execFileAsync("/usr/bin/zip", ["-q", "-j", archivePath, sourcePath])));
+  await fs.rm(sourcePath);
+
+  const roots = [{ id: 71, path: rootPath, last_scan_track_count: 0 }];
+  const database = {
+    async ensureRoot() { return roots[0]; },
+    async markScanStarted() {},
+    async indexedTrackRecords() { return []; },
+    async restoreSources() {},
+    async markUndiscoveredSourcesDead() {},
+    async replaceTracks(_rootId, records, details) { roots[0].last_scan_track_count = records.length; roots[0].details = details; },
+    async loadRoots() { return roots; },
+    async markScanFailed(rootId, message) { throw new Error(`unexpected scan failure for ${rootId}: ${message}`); }
+  };
+  const result = await scanLibraryRoot({
+    rootPath,
+    job: { cancelled: false },
+    database,
+    scanConcurrency: 1,
+    scratchBudgetBytes: 96 * 1024 * 1024,
+    inspectTrackVariants: async () => [{
+      trackIndex: 0,
+      trackCount: 1,
+      inspection: { metadata: { song: "", game: "", author: "", system: "" }, basePlaybackSeconds: 0, specialAudioKind: null }
+    }]
+  });
+  assert.equal(result.warningCount, 0, JSON.stringify({ result, details: roots[0].details }));
+  assert.equal(result.trackCount, 2);
+  assert.equal(result.scratch.activeRootCount, 0);
+  assert.equal(result.scratch.activeBytes, 0);
+});
+
 const execFileAsync = promisify(execFile);
 
 test("scan service coordinates discovery, inspection, progress, and one database commit", async (t) => {
@@ -46,7 +93,7 @@ test("scan service coordinates discovery, inspection, progress, and one database
   const database = {
     async ensureRoot() { return roots[0]; },
     async markScanStarted() {},
-    async indexedTrackRecords() { return []; },
+    async indexedTrackRecords() { return [{ path: path.join(rootPath, "previously-indexed.nsf"), archivePath: null, archiveEntry: null }]; },
     async restoreSources() {},
     async markUndiscoveredSourcesDead() {},
     async replaceTracks(rootId, records, details) {
@@ -81,6 +128,8 @@ test("scan service coordinates discovery, inspection, progress, and one database
   });
 
   assert.deepEqual(calls.inspected, [{ inspectPath: trackPath, sourceName: trackPath }]);
+  const discoveryProgress = calls.progress.find((progress) => progress.operation === "discover");
+  assert.equal(discoveryProgress?.estimatedTotal, 1);
   assert.deepEqual(calls.probed, [{
     path: trackPath,
     sourceName: trackPath,

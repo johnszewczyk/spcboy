@@ -13,12 +13,103 @@ function sqlNumber(value) {
   return Number.isFinite(number) ? String(number) : "NULL";
 }
 
+const CONSOLE_TAG_NAMES = new Map([
+  ["PS1", "Sony PlayStation"], ["PSX", "Sony PlayStation"], ["PS2", "Sony PlayStation 2"],
+  ["PS3", "Sony PlayStation 3"], ["PSP", "Sony PSP"], ["PSV", "Sony PlayStation Vita"],
+  ["NDS", "Nintendo DS"], ["DS", "Nintendo DS"], ["3DS", "Nintendo 3DS"],
+  ["GBA", "Nintendo Game Boy Advance"], ["GBC", "Nintendo Game Boy Color"], ["GB", "Nintendo Game Boy"],
+  ["N64", "Nintendo 64"], ["NES", "Nintendo Entertainment System"], ["SNES", "Super Nintendo"],
+  ["GC", "Nintendo GameCube"], ["WII", "Nintendo Wii"], ["WIIU", "Nintendo Wii U"], ["SWITCH", "Nintendo Switch"],
+  ["MD", "Sega Mega Drive"], ["GEN", "Sega Genesis"], ["SMS", "Sega Master System"],
+  ["SAT", "Sega Saturn"], ["DC", "Sega Dreamcast"], ["GG", "Sega Game Gear"],
+  ["PCE", "NEC PC Engine"], ["TG16", "NEC TurboGrafx-16"], ["PCFX", "NEC PC-FX"],
+  ["XBOX", "Microsoft Xbox"], ["X360", "Microsoft Xbox 360"], ["XONE", "Microsoft Xbox One"],
+  ["PC98", "NEC PC-98"], ["FMT", "FM Towns"], ["3DO", "Panasonic 3DO"], ["ARC", "Arcade"]
+]);
+
+function sourcePathForRecord(record) {
+  return String(record?.archivePath || record?.path || "");
+}
+
+function archiveTitleFromPath(sourcePath) {
+  let title = path.basename(String(sourcePath || ""));
+  title = title.replace(/\.(?:tar\.(?:zst|gz|bz2|xz)|zip|7z|rar|rsn)$/i, "");
+  title = title.replace(/\s*\[[^\]]+\]\s*$/, "").trim();
+  return title;
+}
+
+function consoleFromSourceTag(sourcePath) {
+  const tags = [...path.basename(String(sourcePath || "")).matchAll(/\[([^\]]+)\]/g)];
+  for (let index = tags.length - 1; index >= 0; index -= 1) {
+    const consoleName = CONSOLE_TAG_NAMES.get(String(tags[index][1] || "").trim().toUpperCase());
+    if (consoleName) return consoleName;
+  }
+  return "";
+}
+
+function consoleFromParentFolder(record) {
+  const folderPath = String(record?.folderPath || path.dirname(sourcePathForRecord(record)) || "");
+  return path.basename(folderPath).trim();
+}
+
+function isConsoleFolderName(value) {
+  return /(?:^|\s)(?:sony|playstation|nintendo|sega|nec|microsoft|xbox|panasonic|atari|arcade|commodore|amiga|msx|fm towns|pc-?98|wonder\s*swan|bandai)(?:\s|$)/i.test(String(value || ""));
+}
+
+function usableMetadataValue(value) {
+  const text = String(value || "").trim();
+  // Failed scan materialization used to leak scratch-directory names and
+  // format probes (for example "Sony XA header") into sidebar identity.
+  return text && !path.isAbsolute(text) && !/^spcboy-(?:scan|playback)-scratch-/i.test(text) ? text : "";
+}
+
+function browserBucketsForRecord(record) {
+  const sourcePath = sourcePathForRecord(record);
+  const taggedConsole = consoleFromSourceTag(sourcePath);
+  const parentConsole = consoleFromParentFolder(record);
+  const archiveGame = record?.archivePath ? archiveTitleFromPath(record.archivePath) : "";
+  return {
+    // An archive is the durable game container in JoshW-style libraries. Do
+    // not let a subset of decoder tags split one archive into several game
+    // leaves; loose files still use their inspected game tag when available.
+    game: archiveGame || usableMetadataValue(record?.metadata?.game) || archiveTitleFromPath(sourcePath) || parentConsole || "Untitled",
+    // JoshW-style collection labels are authoritative when present. Metadata
+    // remains a fallback for loose files outside a console-organized library.
+    system: taggedConsole || (isConsoleFolderName(parentConsole) ? parentConsole : "") || usableMetadataValue(record?.metadata?.system) || parentConsole
+  };
+}
+
 function browserGameForRecord(record) {
-  return String(record?.metadata?.game || "").trim() || record?.archivePath || record?.folderPath || "";
+  return browserBucketsForRecord(record).game;
 }
 
 function browserSystemForRecord(record) {
-  return String(record?.metadata?.system || "").trim();
+  return browserBucketsForRecord(record).system;
+}
+
+function displayLibraryRootPath(rootPath) {
+  const parts = path.resolve(String(rootPath || "")).split(path.sep).filter(Boolean);
+  const audioIndex = parts.lastIndexOf("audio");
+  if (audioIndex >= 0 && audioIndex < parts.length - 1) return parts.slice(audioIndex + 1).join("/");
+  return path.basename(String(rootPath || "")) || String(rootPath || "Library");
+}
+
+function searchDocumentExpression(trackAlias = "t", metadataAlias = "m") {
+  return `
+    COALESCE(${trackAlias}.filename, '') || ' ' ||
+    COALESCE(${trackAlias}.archive_entry, '') || ' ' ||
+    COALESCE(${trackAlias}.archive_path, '') || ' ' ||
+    COALESCE(${trackAlias}.folder_path, '') || ' ' ||
+    COALESCE(${trackAlias}.browser_game, '') || ' ' ||
+    COALESCE(${trackAlias}.browser_system, '') || ' ' ||
+    COALESCE(${metadataAlias}.title, '') || ' ' ||
+    COALESCE(${metadataAlias}.game, '') || ' ' ||
+    COALESCE(${metadataAlias}.artist, '') || ' ' ||
+    COALESCE(${metadataAlias}.system, '')`;
+}
+
+function ftsQuery(terms) {
+  return terms.map((term) => `"${String(term).replaceAll('"', '""')}"*`).join(" AND ");
 }
 
 async function run(databasePath, sql, json = false) {
@@ -137,6 +228,7 @@ class LibraryDatabase {
     await run(this.databasePath, "ALTER TABLE library_roots ADD COLUMN last_scan_log TEXT;").catch(() => {});
     await run(this.databasePath, "ALTER TABLE library_roots ADD COLUMN needs_rescan INTEGER NOT NULL DEFAULT 0;").catch(() => {});
     await run(this.databasePath, "DROP INDEX IF EXISTS tracks_game_idx; CREATE INDEX IF NOT EXISTS tracks_browser_bucket_index ON tracks(root_id, browser_game, browser_system);");
+    await run(this.databasePath, "CREATE VIRTUAL TABLE IF NOT EXISTS track_search USING fts5(content);");
     const browserBucketsBackfilled = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='browser-buckets-v1';", true);
     if (!browserBucketsBackfilled.length) {
       await run(this.databasePath, `
@@ -152,7 +244,57 @@ class LibraryDatabase {
         COMMIT;
       `);
     }
+    const browserBucketsNormalized = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='browser-buckets-v3';", true);
+    if (!browserBucketsNormalized.length) await this.rebuildBrowserBuckets();
     await this.repairInternalCacheGameNames();
+    const searchIndexBuilt = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='track-search-v1';", true);
+    if (!searchIndexBuilt.length) {
+      await run(this.databasePath, `
+        BEGIN TRANSACTION;
+        INSERT INTO track_search(rowid, content)
+        SELECT t.id, ${searchDocumentExpression()}
+        FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id;
+        INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('track-search-v1', 'complete');
+        COMMIT;
+      `);
+    }
+  }
+
+  async rebuildBrowserBuckets() {
+    const rows = await run(this.databasePath, `
+      SELECT t.id, t.folder_path AS folderPath, t.path, t.archive_path AS archivePath,
+             COALESCE(m.game, '') AS game, COALESCE(m.system, '') AS system
+      FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id;
+    `, true);
+    if (!rows.length) {
+      await run(this.databasePath, "INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('browser-buckets-v3', 'complete');");
+      return;
+    }
+    await run(this.databasePath, "CREATE TEMP TABLE browser_bucket_rebuild(track_id INTEGER PRIMARY KEY, browser_game TEXT NOT NULL, browser_system TEXT NOT NULL);");
+    try {
+      for (let index = 0; index < rows.length; index += 1000) {
+        const values = rows.slice(index, index + 1000).map((row) => {
+          const buckets = browserBucketsForRecord({
+            folderPath: row.folderPath,
+            path: row.path,
+            archivePath: row.archivePath,
+            metadata: { game: row.game, system: row.system }
+          });
+          return `(${sqlNumber(row.id)}, ${sqlText(buckets.game)}, ${sqlText(buckets.system)})`;
+        });
+        await run(this.databasePath, `INSERT INTO browser_bucket_rebuild(track_id, browser_game, browser_system) VALUES ${values.join(",")};`);
+      }
+      await run(this.databasePath, `
+        BEGIN TRANSACTION;
+        UPDATE tracks
+        SET browser_game=(SELECT browser_game FROM browser_bucket_rebuild b WHERE b.track_id=tracks.id),
+            browser_system=(SELECT browser_system FROM browser_bucket_rebuild b WHERE b.track_id=tracks.id);
+        INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('browser-buckets-v3', 'complete');
+        COMMIT;
+      `);
+    } finally {
+      await run(this.databasePath, "DROP TABLE IF EXISTS browser_bucket_rebuild;").catch(() => {});
+    }
   }
 
   async repairInternalCacheGameNames() {
@@ -183,7 +325,7 @@ class LibraryDatabase {
   }
 
   async removeRoot(rootId) {
-    await run(this.databasePath, `BEGIN TRANSACTION; DELETE FROM track_metadata WHERE track_id IN (SELECT id FROM tracks WHERE root_id=${sqlNumber(rootId)}); DELETE FROM tracks WHERE root_id=${sqlNumber(rootId)}; DELETE FROM library_roots WHERE id=${sqlNumber(rootId)}; COMMIT;`);
+    await run(this.databasePath, `BEGIN TRANSACTION; DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE root_id=${sqlNumber(rootId)}); DELETE FROM track_metadata WHERE track_id IN (SELECT id FROM tracks WHERE root_id=${sqlNumber(rootId)}); DELETE FROM tracks WHERE root_id=${sqlNumber(rootId)}; DELETE FROM library_roots WHERE id=${sqlNumber(rootId)}; COMMIT;`);
     await this.normalizeRootOrder();
     return this.loadRoots();
   }
@@ -226,13 +368,15 @@ class LibraryDatabase {
     const outcomePredicates = [];
     if (archivePaths.length) outcomePredicates.push(`library_scan_outcomes.source_path IN (${archivePaths.map(sqlText).join(",")})`);
     if (loosePaths.length) outcomePredicates.push(`library_scan_outcomes.source_path IN (${loosePaths.map(sqlText).join(",")})`);
-    const cleanupTracks = replaceSources
-      ? `DELETE FROM tracks WHERE root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))${sourcePredicates.length ? ` AND (${sourcePredicates.join(" OR ")})` : " AND 0"};`
-      : `DELETE FROM tracks WHERE root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path));`;
+    const cleanupTrackWhere = replaceSources
+      ? `root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))${sourcePredicates.length ? ` AND (${sourcePredicates.join(" OR ")})` : " AND 0"}`
+      : `root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=tracks.root_id AND d.path=COALESCE(tracks.archive_path, tracks.path))`;
+    const cleanupTracks = `DELETE FROM tracks WHERE ${cleanupTrackWhere};`;
+    const cleanupSearch = `DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE ${cleanupTrackWhere});`;
     const cleanupOutcomes = replaceSources
       ? `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)}${outcomePredicates.length ? ` AND (${outcomePredicates.join(" OR ")})` : " AND 0"};`
       : `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path);`;
-    await run(this.databasePath, ["BEGIN TRANSACTION;", cleanupTracks, cleanupOutcomes, "COMMIT;"].join("\n"));
+    await run(this.databasePath, ["BEGIN TRANSACTION;", cleanupSearch, cleanupTracks, cleanupOutcomes, "COMMIT;"].join("\n"));
     for (let index = 0; index < records.length; index += 1000) {
       const insertStatements = ["BEGIN TRANSACTION;"];
       for (const record of records.slice(index, index + 1000)) {
@@ -240,6 +384,7 @@ class LibraryDatabase {
         if (record.metadata) {
           insertStatements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) VALUES(last_insert_rowid(), ${sqlText(record.metadata.title)}, ${sqlText(record.metadata.game)}, ${sqlText(record.metadata.artist)}, ${sqlText(record.metadata.system)}, ${sqlNumber(record.metadata.playLengthMs)}, ${sqlNumber(now)});`);
         }
+        insertStatements.push(`INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE t.id=last_insert_rowid();`);
       }
       insertStatements.push("COMMIT;");
       await run(this.databasePath, insertStatements.join("\n"));
@@ -283,10 +428,15 @@ class LibraryDatabase {
           ? `archive_path IS NULL AND path=${sqlText(update.path)} AND track_index=${sqlNumber(update.trackIndex)}`
           : null;
       if (!predicate) continue;
-      const browserGame = String(metadata.game || "").trim();
-      const browserSystem = String(metadata.system || "").trim();
-      statements.push(`UPDATE tracks SET browser_game=CASE WHEN ${sqlText(browserGame)} <> '' THEN ${sqlText(browserGame)} ELSE COALESCE(archive_path, folder_path) END, browser_system=${sqlText(browserSystem)} WHERE ${predicate};`);
+      // Queue-time tag hydration must preserve the source-derived console
+      // bucket. Build each update from the existing source columns in SQL,
+      // then repair its normalized identity in the next scan/initialization.
+      // A tag may improve a game title, but must never turn PS1 into "SEGA".
+      const browserGame = usableMetadataValue(metadata.game);
+      statements.push(`UPDATE tracks SET browser_game=CASE WHEN ${sqlText(browserGame)} <> '' THEN ${sqlText(browserGame)} ELSE browser_game END WHERE ${predicate};`);
       statements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) SELECT id, ${sqlText(metadata.title)}, ${sqlText(metadata.game)}, ${sqlText(metadata.artist)}, ${sqlText(metadata.system)}, ${sqlNumber(metadata.playLengthMs)}, ${sqlNumber(now)} FROM tracks WHERE ${predicate} ON CONFLICT(track_id) DO UPDATE SET title=excluded.title, game=excluded.game, artist=excluded.artist, system=excluded.system, play_length_ms=excluded.play_length_ms, metadata_scanned_at=excluded.metadata_scanned_at;`);
+      statements.push(`DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE ${predicate});`);
+      statements.push(`INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE ${predicate};`);
     }
     if (statements.length === 1) return;
     statements.push("COMMIT;");
@@ -317,6 +467,10 @@ class LibraryDatabase {
     return run(this.databasePath, `
       SELECT t.root_id AS rootId, COALESCE(t.archive_path, t.path) AS path
       FROM tracks t
+      WHERE NOT EXISTS (
+        SELECT 1 FROM dead_sources d
+        WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path)
+      )
       GROUP BY t.root_id, COALESCE(t.archive_path, t.path)
       ORDER BY t.root_id, path;
     `, true);
@@ -354,29 +508,32 @@ class LibraryDatabase {
 
   async markSourcesDead(sources) {
     if (!sources.length) return { markedSourceCount: 0, rootIds: [] };
-    const rootIds = [...new Set(sources.map((source) => Number(source.rootId)))].filter(Number.isFinite);
-    const sourceRows = sources.map((source) =>
-      `(${sqlNumber(source.rootId)}, ${sqlText(source.path)})`
-    ).join(",\n");
-    await run(this.databasePath, `
-      BEGIN TRANSACTION;
-      CREATE TEMP TABLE mark_missing_sources (
-        root_id INTEGER NOT NULL,
-        path TEXT NOT NULL,
-        PRIMARY KEY(root_id, path)
-      );
-      INSERT INTO mark_missing_sources(root_id, path) VALUES
-      ${sourceRows};
-      INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at)
-      SELECT root_id, path, ${sqlNumber(Date.now() / 1000)} FROM mark_missing_sources;
-      UPDATE library_roots
-      SET last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=library_roots.id AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))),
-          needs_rescan=1
-      WHERE id IN (SELECT DISTINCT root_id FROM mark_missing_sources);
-      DROP TABLE mark_missing_sources;
-      COMMIT;
-    `);
-    return { markedSourceCount: sources.length, rootIds };
+    const uniqueSources = [...new Map(sources.map((source) => [`${source.rootId}\u0000${source.path}`, source])).values()];
+    const rootIds = [...new Set(uniqueSources.map((source) => Number(source.rootId)))].filter(Number.isFinite);
+    for (let offset = 0; offset < uniqueSources.length; offset += 500) {
+      const sourceRows = uniqueSources.slice(offset, offset + 500).map((source) =>
+        `(${sqlNumber(source.rootId)}, ${sqlText(source.path)})`
+      ).join(",\n");
+      await run(this.databasePath, `
+        BEGIN TRANSACTION;
+        CREATE TEMP TABLE mark_missing_sources (
+          root_id INTEGER NOT NULL,
+          path TEXT NOT NULL,
+          PRIMARY KEY(root_id, path)
+        );
+        INSERT INTO mark_missing_sources(root_id, path) VALUES
+        ${sourceRows};
+        INSERT OR REPLACE INTO dead_sources(root_id, path, marked_at)
+        SELECT root_id, path, ${sqlNumber(Date.now() / 1000)} FROM mark_missing_sources;
+        UPDATE library_roots
+        SET last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=library_roots.id AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))),
+            needs_rescan=1
+        WHERE id IN (SELECT DISTINCT root_id FROM mark_missing_sources);
+        DROP TABLE mark_missing_sources;
+        COMMIT;
+      `);
+    }
+    return { markedSourceCount: uniqueSources.length, rootIds };
   }
 
   async deadSourceCount() {
@@ -414,6 +571,7 @@ class LibraryDatabase {
     await run(this.databasePath, `
       BEGIN TRANSACTION;
       DELETE FROM library_scan_outcomes;
+      DELETE FROM track_search;
       DELETE FROM tracks;
       DELETE FROM dead_sources;
       UPDATE library_roots
@@ -425,12 +583,28 @@ class LibraryDatabase {
     return { clearedTrackCount: trackCount };
   }
 
-  async loadGames() {
-    const games = await run(this.databasePath, `
+  async loadGames(query = "") {
+    const terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const matchingGroups = terms.length ? `
+      WITH matching_groups AS (
+        SELECT DISTINCT t.root_id AS rootId, t.browser_game AS name, t.browser_system AS system
+        FROM tracks t
+        JOIN library_roots r ON r.id=t.root_id
+        LEFT JOIN track_metadata m ON m.track_id=t.id
+        JOIN track_search ON track_search.rowid=t.id
+        WHERE r.is_enabled=1
+          AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
+          AND track_search MATCH ${sqlText(ftsQuery(terms))}
+      )` : "";
+    const matchingJoin = terms.length
+      ? "JOIN matching_groups g ON g.rootId=t.root_id AND g.name=t.browser_game AND g.system=t.browser_system"
+      : "";
+    const games = await run(this.databasePath, `${matchingGroups}
       SELECT t.root_id AS rootId, r.path AS rootPath,
              t.browser_game AS name, t.browser_system AS system,
              COUNT(*) AS trackCount
       FROM tracks t JOIN library_roots r ON r.id=t.root_id
+      ${matchingJoin}
       WHERE r.is_enabled=1
         AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
       GROUP BY t.root_id, r.path, name, system
@@ -445,7 +619,7 @@ class LibraryDatabase {
     }
     return games.map((game) => {
       const key = `${game.name}\u0000${game.system}`;
-      const rootName = path.basename(game.rootPath || "") || game.rootPath || "Library";
+      const rootName = displayLibraryRootPath(game.rootPath);
       const detail = game.system || "Unknown Console";
       return {
         ...game,
@@ -455,19 +629,15 @@ class LibraryDatabase {
     });
   }
 
+  async searchGames(query) {
+    return this.loadGames(query);
+  }
+
   async searchBrowserEntries(rootPath, query) {
     const normalizedQuery = String(query || "").trim().toLowerCase();
     if (!rootPath || !normalizedQuery) return [];
+    const normalizedRootPath = path.resolve(rootPath);
     const terms = normalizedQuery.split(/\s+/).filter(Boolean);
-    const searchText = `lower(
-      COALESCE(t.filename, '') || ' ' ||
-      COALESCE(t.archive_entry, '') || ' ' ||
-      COALESCE(m.title, '') || ' ' ||
-      COALESCE(m.game, '') || ' ' ||
-      COALESCE(m.artist, '') || ' ' ||
-      COALESCE(m.system, '')
-    )`;
-    const termPredicate = terms.map((term) => `${searchText} LIKE ${sqlText(`%${term}%`)}`).join(" AND ");
     return run(this.databasePath, `
       SELECT DISTINCT
              r.path AS rootPath,
@@ -479,12 +649,14 @@ class LibraryDatabase {
       FROM tracks t
       JOIN library_roots r ON r.id=t.root_id
       LEFT JOIN track_metadata m ON m.track_id=t.id
+      JOIN track_search ON track_search.rowid=t.id
       WHERE r.is_enabled=1
+        AND (t.folder_path=${sqlText(normalizedRootPath)} OR t.folder_path LIKE ${sqlText(`${normalizedRootPath}${path.sep}%`)})
         AND NOT EXISTS (
           SELECT 1 FROM dead_sources d
           WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path)
         )
-        AND (${termPredicate})
+        AND track_search MATCH ${sqlText(ftsQuery(terms))}
       ORDER BY lower(r.path), lower(t.folder_path), lower(t.filename), lower(COALESCE(t.archive_entry, ''));
     `, true);
   }
@@ -493,7 +665,7 @@ class LibraryDatabase {
     if (!games.length) return [];
     const predicate = games.map((game) => `(t.root_id=${sqlNumber(game.rootId)} AND t.browser_game=${sqlText(game.name)} AND t.browser_system=${sqlText(game.system)})`).join(" OR ");
     return run(this.databasePath, `
-      SELECT t.path, t.filename, t.special_audio_kind AS specialAudioKind, t.archive_path AS archivePath, t.archive_entry AS archiveEntry, t.track_index AS trackIndex, t.track_count AS trackCount,
+      SELECT r.path AS rootPath, t.path, t.filename, t.special_audio_kind AS specialAudioKind, t.archive_path AS archivePath, t.archive_entry AS archiveEntry, t.track_index AS trackIndex, t.track_count AS trackCount,
              COALESCE(m.title, '') AS title, COALESCE(m.game, '') AS game,
              COALESCE(m.artist, '') AS artist, COALESCE(m.system, '') AS system,
              COALESCE(m.play_length_ms, 0) AS playLengthMs

@@ -63,6 +63,12 @@ SPCBoy uses external open-source playback libraries. Their copyright and license
 - License: MIT.
 - Source: <https://github.com/electron/electron>
 
+## Lucide
+
+- Purpose: bundled outline SVG icons for library views and Options navigation.
+- License: ISC.
+- Source: <https://lucide.dev/> and <https://github.com/lucide-icons/lucide>
+
 ## SQLite
 
 - Purpose: persistent library index and scan database through the system `sqlite3` command.

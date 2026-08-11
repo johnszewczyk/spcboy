@@ -90,8 +90,10 @@ touch "$APP_DIR"
 
 # Make the macOS bundle identify itself as SPCBoy while retaining Electron's
 # executable and frameworks intact.
+mv "$APP_CONTENTS_DIR/MacOS/Electron" "$APP_CONTENTS_DIR/MacOS/SPCBoy"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName SPCBoy" "$APP_CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName SPCBoy" "$APP_CONTENTS_DIR/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable SPCBoy" "$APP_CONTENTS_DIR/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.john.spcboy.development" "$APP_CONTENTS_DIR/Info.plist"
 
 # The copied Electron runtime is signed.  Adding our application source and
@@ -101,7 +103,12 @@ touch "$APP_DIR"
 # copied runtime can retain Finder/provenance extended attributes that codesign
 # refuses to seal, so clear them from this disposable build output first.
 /usr/bin/xattr -cr "$APP_DIR"
+# Ad-hoc signatures normally use the current code hash as their designated
+# requirement. That makes macOS treat every rebuilt bundle as a new app for
+# Files & Folders consent. Keep a stable development identity requirement so
+# a user's permission decision survives ordinary local rebuilds.
 codesign --force --deep --sign - "$APP_DIR"
+codesign --force --sign - -r='designated => identifier "com.john.spcboy.development"' "$APP_DIR"
 codesign --verify --deep --strict "$APP_DIR"
 
 echo "Built SPCBoy.app ($BUILD_ID)"
@@ -110,6 +117,10 @@ echo "Renderer CSS: $(shasum -a 256 "$APP_SOURCE_DIR/web/styles.css" | awk '{pri
 if [[ -n "$SPCBOY_LIBRARY_ROOT" ]]; then
   echo "Library root: $SPCBOY_LIBRARY_ROOT"
 else
-  echo "Library root: configured Library Paths"
+echo "Library root: configured Library Paths"
 fi
-open -n "$APP_DIR"
+# Rebuilding replaces the bundle in place. LaunchServices can hold an old
+# Electron executable record for that bundle and report kLSNoExecutableErr
+# despite the fresh signed executable being present. Launch the new bundle's
+# executable directly so this script always runs exactly what it just built.
+"$APP_CONTENTS_DIR/MacOS/SPCBoy" >/tmp/spcboy-launch.log 2>&1 &

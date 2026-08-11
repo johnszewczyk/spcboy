@@ -16,6 +16,7 @@ let databaseConsoleGroups = [];
 let libraryProgressRenderTimer = 0;
 const collapsedDatabaseConsoles = new Set();
 let browserClickTimer = 0;
+let sidebarSearchTimer = 0;
 let browserSelectionGeneration = 0;
 let playlistLoadGeneration = 0;
 let selectedBrowserButton = null;
@@ -552,6 +553,19 @@ function databaseConsoleName(game) {
   return game.system || "Unknown Console";
 }
 
+function visibleDatabaseGames() {
+  return Array.isArray(state.databaseSearchGames) ? state.databaseSearchGames : state.databaseGames;
+}
+
+function immediateDatabaseSearch(query) {
+  const terms = String(query || "").trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return null;
+  return state.databaseGames.filter((game) => {
+    const text = `${game.name || ""} ${game.system || ""} ${game.rootName || ""}`.toLocaleLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
+}
+
 function makeDatabaseGameButton(game) {
   const button = document.createElement("button");
   button.type = "button";
@@ -606,13 +620,14 @@ function makeDatabaseGameButton(game) {
 }
 
 function renderDatabaseGames() {
-  if (renderedDatabaseGames !== state.databaseGames || renderedDatabaseConsoleView !== state.consoleViewEnabled) {
+  const gamesForView = visibleDatabaseGames();
+  if (renderedDatabaseGames !== gamesForView || renderedDatabaseConsoleView !== state.consoleViewEnabled) {
     resetSidebarContent();
     selectedDatabaseGameButton = null;
     databaseConsoleGroups = [];
     if (state.consoleViewEnabled) {
       const groupedGames = new Map();
-      for (const game of state.databaseGames) {
+      for (const game of gamesForView) {
         const consoleName = databaseConsoleName(game);
         const games = groupedGames.get(consoleName) || [];
         games.push(game);
@@ -671,22 +686,22 @@ function renderDatabaseGames() {
         databaseConsoleGroups.push({ group, games, consoleName });
       });
     } else {
-      databaseGameButtons = state.databaseGames.map(makeDatabaseGameButton);
+      databaseGameButtons = gamesForView.map(makeDatabaseGameButton);
       databaseGameButtons.forEach((button) => refs.treeRoot.appendChild(button));
     }
 
     databaseEmptyState = document.createElement("div");
     databaseEmptyState.className = "empty sidebar-empty";
     refs.treeRoot.appendChild(databaseEmptyState);
-    renderedDatabaseGames = state.databaseGames;
+    renderedDatabaseGames = gamesForView;
     renderedDatabaseConsoleView = state.consoleViewEnabled;
   }
 
-  const query = state.sidebarQuery.trim().toLowerCase();
+  const query = state.sidebarQuery.trim();
   let visibleCount = 0;
   for (const button of databaseGameButtons) {
-    const visible = !query || button.dataset.searchText.includes(query);
-    button.classList.toggle("is-hidden", !visible);
+    const visible = true;
+    button.classList.remove("is-hidden");
     button.classList.toggle("is-selected", state.selectedDatabaseGameKey === button.dataset.databaseGameKey);
     if (state.selectedDatabaseGameKey === button.dataset.databaseGameKey) selectedDatabaseGameButton = button;
     if (visible) visibleCount += 1;
@@ -751,6 +766,7 @@ async function loadDatabaseGames() {
 async function refreshDatabaseGamesForVisibleRoots() {
   const previousSelection = state.selectedDatabaseGameKey;
   state.databaseGames = await window.spcBoy.databaseGames();
+  state.databaseSearchGames = null;
   if (previousSelection && !state.databaseGames.some((game) => databaseGameKey(game) === previousSelection)) {
     state.selectedDatabaseGameKey = null;
     state.playlist = [];
@@ -760,22 +776,42 @@ async function refreshDatabaseGamesForVisibleRoots() {
   }
 }
 
-async function updateSidebarSearch(query) {
+function updateSidebarSearch(query) {
   state.sidebarQuery = String(query || "");
-  const generation = ++state.folderSearchGeneration;
+  const folderGeneration = ++state.folderSearchGeneration;
+  const databaseGeneration = ++state.databaseSearchGeneration;
   state.folderSearchEntries = null;
+  state.databaseSearchGames = state.sidebarMode === "database" ? immediateDatabaseSearch(state.sidebarQuery) : null;
+  window.clearTimeout(sidebarSearchTimer);
   renderSidebar();
-  if (state.sidebarMode !== "folders" || !state.rootPath || !state.sidebarQuery.trim() || !window.spcBoy?.databaseSearchBrowser) return;
-  try {
-    const entries = await window.spcBoy.databaseSearchBrowser(state.rootPath, state.sidebarQuery);
-    if (generation !== state.folderSearchGeneration || state.sidebarMode !== "folders" || state.sidebarQuery.trim() !== String(query || "").trim()) return;
-    // Unscanned paths retain the existing raw-tree filter. Indexed results add
-    // descendants that were not previously unfolded in the Folder view.
-    state.folderSearchEntries = Array.isArray(entries) && entries.length ? entries : null;
-    renderSidebar();
-  } catch (error) {
-    console.error("[SPCBoy] indexed sidebar search failed", error);
+  const requestedQuery = state.sidebarQuery.trim();
+  if (!requestedQuery) return;
+  if (state.sidebarMode === "database" && window.spcBoy?.databaseSearchGames) {
+    sidebarSearchTimer = window.setTimeout(() => {
+      window.spcBoy.databaseSearchGames(requestedQuery)
+        .then((games) => {
+          if (databaseGeneration !== state.databaseSearchGeneration || state.sidebarMode !== "database" || state.sidebarQuery.trim() !== requestedQuery) return;
+          state.databaseSearchGames = Array.isArray(games) ? games : [];
+          renderSidebar();
+        })
+        .catch((error) => console.error("[SPCBoy] database sidebar search failed", error));
+    }, 120);
+    return;
   }
+  if (state.sidebarMode !== "folders" || !state.rootPath || !window.spcBoy?.databaseSearchBrowser) return;
+  // The SQLite worker processes requests serially. Debouncing prevents every
+  // intermediate keystroke from delaying the final Folder-view search.
+  sidebarSearchTimer = window.setTimeout(() => {
+    window.spcBoy.databaseSearchBrowser(state.rootPath, requestedQuery)
+      .then((entries) => {
+        if (folderGeneration !== state.folderSearchGeneration || state.sidebarMode !== "folders" || state.sidebarQuery.trim() !== requestedQuery) return;
+        // Unscanned paths retain the existing raw-tree filter. Indexed results
+        // add descendants that were not previously unfolded in Folder view.
+        state.folderSearchEntries = Array.isArray(entries) && entries.length ? entries : null;
+        renderSidebar();
+      })
+      .catch((error) => console.error("[SPCBoy] indexed sidebar search failed", error));
+  }, 120);
 }
 
 async function handleLibraryDatabaseChanged(change = {}) {
@@ -811,6 +847,7 @@ function databaseRowsToPlaylistTracks(rows, games) {
     id: `${row.path}#${row.trackIndex || 0}`,
     index: index + 1,
     path: row.path,
+    rootPath: row.rootPath || fallbackGame.rootPath || state.rootPath,
     sourceFilename: row.filename,
     trackIndex: Number(row.trackIndex) || 0,
     trackCount: Math.max(1, Number(row.trackCount) || 1),
@@ -843,15 +880,16 @@ async function loadDatabaseGamesIntoPlaylist(games) {
 }
 
 async function activateDatabaseSelection() {
+  const gamesForView = visibleDatabaseGames();
   if (state.selectedDatabaseConsoleName && state.consoleViewEnabled) {
-    const games = state.databaseGames.filter((game) => databaseConsoleName(game) === state.selectedDatabaseConsoleName);
+    const games = gamesForView.filter((game) => databaseConsoleName(game) === state.selectedDatabaseConsoleName);
     if (games.length) {
       await loadDatabaseGamesIntoPlaylist(games);
       if (state.playlist[0]) await uiApp.playback.playTrack(state.playlist[0].id, 0);
       return;
     }
   }
-  const game = state.databaseGames.find((entry) => databaseGameKey(entry) === state.selectedDatabaseGameKey);
+  const game = gamesForView.find((entry) => databaseGameKey(entry) === state.selectedDatabaseGameKey);
   if (game) {
     await loadDatabaseGame(game);
     if (state.playlist[0]) await uiApp.playback.playTrack(state.playlist[0].id, 0);
@@ -862,10 +900,11 @@ async function activateFocusedItem(focusTarget = document.activeElement) {
   const focused = focusTarget?.closest?.(".playlist-row, .tree-node, .database-game-row, .database-console-row") || document.activeElement;
   const playlistRow = focused?.closest?.(".playlist-row");
   if (playlistRow?.dataset.trackId) {
-    state.selectedTrackId = playlistRow.dataset.trackId;
-    state.lastSelectedTrackId = state.selectedTrackId;
-    persistSettings();
-    await uiApp.playback.playTrack(playlistRow.dataset.trackId, 0);
+    // The visual selection is the activation target. Focus can legitimately
+    // lag while arrow navigation advances the selected row.
+    const track = selectPlaylistTrack(state.selectedTrackId || playlistRow.dataset.trackId);
+    if (!track) return false;
+    await uiApp.playback.playTrack(track.id, 0);
     return true;
   }
 
@@ -880,7 +919,7 @@ async function activateFocusedItem(focusTarget = document.activeElement) {
 
   const databaseGameButton = focused?.closest?.(".database-game-row");
   if (databaseGameButton?.dataset.databaseGameKey) {
-    const game = state.databaseGames.find((entry) => databaseGameKey(entry) === databaseGameButton.dataset.databaseGameKey);
+    const game = visibleDatabaseGames().find((entry) => databaseGameKey(entry) === databaseGameButton.dataset.databaseGameKey);
     if (game) {
       state.selectedDatabaseGameKey = databaseGameButton.dataset.databaseGameKey;
       state.selectedDatabaseConsoleName = databaseConsoleName(game);
@@ -946,12 +985,35 @@ function playlistSortValue(track, column) {
   if (column.id === "lengthLabel") {
     return Number(track.basePlaybackSeconds) || 0;
   }
-  const value = track[column.id] ?? "";
+  const value = playlistColumnValue(track, column);
   if (column.id === "index") {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : 0;
   }
   return String(value).toLocaleLowerCase();
+}
+
+function playlistDisplayPath(track) {
+  const sourcePath = String(track.path || "");
+  const rootPath = String(track.rootPath || state.rootPath || "");
+  if (!sourcePath || !rootPath) return sourcePath;
+  const hashIndex = sourcePath.indexOf("#");
+  const physicalPath = hashIndex === -1 ? sourcePath : sourcePath.slice(0, hashIndex);
+  const archiveSuffix = hashIndex === -1 ? "" : sourcePath.slice(hashIndex);
+  const normalizedRoot = rootPath.replace(/[\\/]+$/, "");
+  const normalizedPhysical = physicalPath.replace(/\\/g, "/");
+  const normalizedRootForMatch = normalizedRoot.replace(/\\/g, "/");
+  const rootPrefix = `${normalizedRootForMatch}/`;
+  const rootLabel = normalizedRootForMatch.split("/").at(-1);
+  const sourceForMatch = normalizedPhysical.toLocaleLowerCase();
+  const rootForMatch = normalizedRootForMatch.toLocaleLowerCase();
+  if (sourceForMatch === rootForMatch) return `${rootLabel}${archiveSuffix}`;
+  if (sourceForMatch.startsWith(rootPrefix.toLocaleLowerCase())) return `${rootLabel}/${normalizedPhysical.slice(rootPrefix.length)}${archiveSuffix}`;
+  return sourcePath;
+}
+
+function playlistColumnValue(track, column) {
+  return column.id === "path" ? playlistDisplayPath(track) : (track[column.id] ?? "");
 }
 
 function sortPlaylist() {
@@ -1037,7 +1099,7 @@ function columnContentWidth(columnId) {
   const styleSource = header?.querySelector(".playlist-header-label") || header || refs.playlistBody;
   const style = getComputedStyle(styleSource);
   textMeasureContext.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  const values = [column.label, ...state.playlist.map((track) => String(track[column.id] ?? ""))];
+  const values = [column.label, ...state.playlist.map((track) => String(playlistColumnValue(track, column)))];
   return Math.max(...values.map((value) => textMeasureContext.measureText(value).width), 0) + 24;
 }
 
@@ -1186,14 +1248,14 @@ function renderPlaylistCell(track, column) {
   td.className = column.className || "";
   td.dataset.columnId = column.id;
   td.style.width = `${state.columnWidths[column.id]}%`;
-  td.textContent = String(track[column.id] ?? "");
+  td.textContent = String(playlistColumnValue(track, column));
   return td;
 }
 
 function playlistAutoSizeSignature() {
   const columns = orderedColumns();
   return columns.map((column) => column.id).join("\u0001") + "\u0002" + state.playlist
-    .map((track) => columns.map((column) => String(track[column.id] ?? "")).join("\u0001"))
+    .map((track) => columns.map((column) => String(playlistColumnValue(track, column))).join("\u0001"))
     .join("\u0002");
 }
 
@@ -1244,7 +1306,7 @@ function refreshPlaylistRow(trackId) {
   for (const column of orderedColumns()) {
     const cell = row.querySelector(`[data-column-id="${CSS.escape(column.id)}"]`);
     if (!cell) return false;
-    cell.textContent = String(track[column.id] ?? "");
+    cell.textContent = String(playlistColumnValue(track, column));
     cell.style.width = `${state.columnWidths[column.id]}%`;
   }
   updatePlaylistRowState(row, trackId);
@@ -1316,8 +1378,9 @@ function renderPlaylist() {
       if (event.key !== "Enter") return;
       event.preventDefault();
       event.stopPropagation();
-      selectPlaylistTrack(track.id);
-      uiApp.playback.playTrack(track.id, 0).catch((error) => {
+      const selectedTrack = selectPlaylistTrack(state.selectedTrackId || track.id);
+      if (!selectedTrack) return;
+      uiApp.playback.playTrack(selectedTrack.id, 0).catch((error) => {
         console.error(error);
       });
     });
@@ -1359,12 +1422,14 @@ function scheduleMetadataRefresh(trackId) {
 function applyUISettings() {
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--ui-font-size-pt", String(state.uiFontSizePt));
+  rootStyle.setProperty("--app-font-family", state.applicationMonospace ? "var(--mono-font-family)" : "var(--ui-font-family)");
   rootStyle.setProperty("--sidebar-font-size-pt", String(state.sidebarFontSizePt));
   rootStyle.setProperty("--sidebar-text-color", state.sidebarTextColor);
-  rootStyle.setProperty("--sidebar-font-family", state.sidebarMonospace ? "var(--mono-font-family)" : "var(--ui-font-family)");
+  rootStyle.setProperty("--sidebar-font-family", state.sidebarMonospace || state.applicationMonospace ? "var(--mono-font-family)" : "var(--ui-font-family)");
   rootStyle.setProperty("--playlist-font-size-pt", String(state.playlistFontSizePt));
   rootStyle.setProperty("--playlist-text-color", state.playlistTextColor);
-  rootStyle.setProperty("--playlist-font-family", state.playlistMonospace ? "var(--mono-font-family)" : "var(--ui-font-family)");
+  rootStyle.setProperty("--playlist-font-family", state.playlistMonospace || state.applicationMonospace ? "var(--mono-font-family)" : "var(--ui-font-family)");
+  rootStyle.setProperty("--playlist-header-font-weight", state.playlistHeaderBold ? "700" : "400");
   rootStyle.setProperty("--sidebar-width-percent", String(state.sidebarWidthPercent));
   rootStyle.setProperty("--accent", state.accentColor);
   rootStyle.setProperty("--item-spacing-rem", String(state.uiItemSpacingRem));
@@ -1381,6 +1446,8 @@ function appearanceSettings() {
     playlistFontSizePt: state.playlistFontSizePt,
     playlistTextColor: state.playlistTextColor,
     playlistMonospace: state.playlistMonospace,
+    applicationMonospace: state.applicationMonospace,
+    playlistHeaderBold: state.playlistHeaderBold,
     accentColor: state.accentColor
   };
 }
@@ -1401,11 +1468,14 @@ function applyLibraryProgress(progress) {
   if (jobId && (!state.libraryOperationActive || (state.libraryOperationId && state.libraryOperationId !== jobId))) return;
   const progressPath = String(progress.path || "");
   const operation = progress.operation === "trim" ? "Checking files" : progress.operation === "prepare" ? "Preparing scan" : progress.operation === "discover" ? "Discovering files" : progress.operation === "stream" && progress.stage === "archiveListing" ? "Listing archive" : "Scanning";
-  state.libraryScanProgress = progress.operation === "scan" ? progress : null;
+  // Discovery has no final source total yet, but it is still real work. Keep
+  // the progress surface visible and use its indeterminate treatment until a
+  // stable total is available.
+  state.libraryScanProgress = progress;
   const baseStatus = progress.operation === "prepare"
     ? `${operation}…`
     : progress.operation === "discover"
-      ? `${operation} • ${progress.completed} found • ${progress.visitedFolders || 0} folders`
+      ? `${operation} • ${progress.completed} found${Number(progress.estimatedTotal) > 0 ? ` of ~${progress.estimatedTotal} expected` : ""} • ${progress.visitedFolders || 0} folders`
     : progress.operation === "stream" && !progress.total
       ? operation
       : `${operation} ${progress.completed}/${progress.total}`;
@@ -1425,14 +1495,21 @@ function applyLibraryProgress(progress) {
       refs.libraryScanStatus.textContent = state.libraryScanStatus;
       refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
       refs.libraryCancelButton.disabled = !state.libraryOperationActive;
+      refs.libraryCancelButton.classList.toggle("is-hidden", !state.libraryOperationActive);
       const progressState = state.libraryScanProgress;
       const total = Number(progressState?.total || 0);
+      const estimatedTotal = Number(progressState?.estimatedTotal || 0);
       const completed = Number(progressState?.completed || 0);
       refs.libraryScanProgressBar.classList.toggle("is-collapsed", !progressState);
-      refs.libraryScanProgressBar.classList.toggle("is-preparing", progressState?.operation === "prepare");
-      refs.libraryScanProgressBar.setAttribute("aria-valuemax", String(total));
-      refs.libraryScanProgressBar.setAttribute("aria-valuenow", String(completed));
-      refs.libraryScanProgressFill.style.width = `${total ? Math.min(100, Math.round((completed / total) * 100)) : 0}%`;
+      refs.libraryScanProgressBar.classList.toggle("is-preparing", Boolean(progressState) && !total && !estimatedTotal);
+      refs.libraryScanProgressBar.classList.toggle("is-estimated", Boolean(progressState) && !total && estimatedTotal > 0);
+      const ariaMaximum = total || estimatedTotal;
+      refs.libraryScanProgressBar.setAttribute("aria-valuemax", String(ariaMaximum));
+      refs.libraryScanProgressBar.setAttribute("aria-valuenow", String(ariaMaximum ? Math.min(completed, ariaMaximum) : 0));
+      refs.libraryScanProgressBar.setAttribute("aria-valuetext", total
+        ? `${completed} of ${total}`
+        : estimatedTotal ? `${completed} of approximately ${estimatedTotal} discovered sources` : `${completed} discovered sources`);
+      refs.libraryScanProgressFill.style.width = `${total ? Math.min(100, Math.round((completed / total) * 100)) : estimatedTotal ? Math.min(100, Math.round((completed / estimatedTotal) * 100)) : 0}%`;
     }, 125);
   }
 }
@@ -1532,6 +1609,8 @@ function renderAll() {
   refs.playlistTextColorInput.value = state.playlistTextColor;
   if (document.activeElement !== refs.accentColorInput) refs.accentColorInput.value = state.accentColor;
   refs.playlistMonospaceCheckbox.checked = state.playlistMonospace;
+  refs.applicationMonospaceCheckbox.checked = state.applicationMonospace;
+  refs.playlistHeaderBoldCheckbox.checked = state.playlistHeaderBold;
   refs.columnAutoSizeCheckbox.checked = state.columnAutoSize;
   refs.libraryDeepScanCheckbox.checked = state.libraryDeepScanEnabled;
   refs.libraryDeepScanCheckbox.disabled = state.libraryOperationActive;
@@ -1547,7 +1626,7 @@ function renderAll() {
   refs.longPlayButton.title = state.longPlayEnabled ? "Long Play enabled" : "Long Play disabled";
   refs.longPlayButton.setAttribute("aria-label", refs.longPlayButton.title);
   const repeatTitles = { off: "Repeat off", all: "Repeat all", one: "Repeat one" };
-  refs.repeatButton.textContent = state.repeatMode === "one" ? "↻¹" : "↻";
+  refs.repeatButton.dataset.repeatMode = state.repeatMode;
   refs.repeatButton.classList.toggle("is-selected", state.repeatMode !== "off");
   refs.repeatButton.setAttribute("aria-pressed", state.repeatMode === "off" ? "false" : "true");
   refs.repeatButton.title = repeatTitles[state.repeatMode];
@@ -1556,6 +1635,7 @@ function renderAll() {
   refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
   refs.libraryScanStatusPanel.classList.toggle("is-hidden", state.libraryScanStatus === "No scan started.");
   refs.libraryCancelButton.disabled = !state.libraryOperationActive;
+  refs.libraryCancelButton.classList.toggle("is-hidden", !state.libraryOperationActive);
   refs.libraryAddRootButton.disabled = state.libraryOperationActive;
   refs.libraryToggleRootsButton.disabled = state.libraryOperationActive;
   refs.libraryScanAllButton.disabled = state.libraryOperationActive;
@@ -1565,12 +1645,18 @@ function renderAll() {
   refs.libraryClearCacheButton.disabled = state.libraryOperationActive;
   const progress = state.libraryScanProgress;
   const progressTotal = Number(progress?.total || 0);
+  const estimatedProgressTotal = Number(progress?.estimatedTotal || 0);
   const progressCompleted = Number(progress?.completed || 0);
   refs.libraryScanProgressBar.classList.toggle("is-collapsed", !progress);
-  refs.libraryScanProgressBar.classList.toggle("is-preparing", progress?.operation === "prepare");
-  refs.libraryScanProgressBar.setAttribute("aria-valuemax", String(progressTotal));
-  refs.libraryScanProgressBar.setAttribute("aria-valuenow", String(progressCompleted));
-  refs.libraryScanProgressFill.style.width = `${progressTotal ? Math.min(100, Math.round((progressCompleted / progressTotal) * 100)) : 0}%`;
+  refs.libraryScanProgressBar.classList.toggle("is-preparing", Boolean(progress) && !progressTotal && !estimatedProgressTotal);
+  refs.libraryScanProgressBar.classList.toggle("is-estimated", Boolean(progress) && !progressTotal && estimatedProgressTotal > 0);
+  const ariaProgressMaximum = progressTotal || estimatedProgressTotal;
+  refs.libraryScanProgressBar.setAttribute("aria-valuemax", String(ariaProgressMaximum));
+  refs.libraryScanProgressBar.setAttribute("aria-valuenow", String(ariaProgressMaximum ? Math.min(progressCompleted, ariaProgressMaximum) : 0));
+  refs.libraryScanProgressBar.setAttribute("aria-valuetext", progressTotal
+    ? `${progressCompleted} of ${progressTotal}`
+    : estimatedProgressTotal ? `${progressCompleted} of approximately ${estimatedProgressTotal} discovered sources` : `${progressCompleted} discovered sources`);
+  refs.libraryScanProgressFill.style.width = `${progressTotal ? Math.min(100, Math.round((progressCompleted / progressTotal) * 100)) : estimatedProgressTotal ? Math.min(100, Math.round((progressCompleted / estimatedProgressTotal) * 100)) : 0}%`;
   const maintenance = state.databaseMaintenanceSummary;
   refs.databaseIndexedTrackCount.textContent = maintenance ? String(maintenance.indexedTrackCount) : "—";
   refs.databaseUnlinkedSourceCount.textContent = maintenance ? String(maintenance.unlinkedSourceCount) : "—";
@@ -1578,6 +1664,10 @@ function renderAll() {
   refs.databaseCacheSummary.textContent = maintenance?.archiveCache ? formatArchiveCacheSummary(maintenance.archiveCache) : "—";
   refs.consoleViewCheckbox.checked = state.consoleViewEnabled;
   refs.equalizerEnabledCheckbox.checked = state.equalizerEnabled;
+  refs.equalizerToolbarButton.classList.toggle("is-selected", state.equalizerEnabled);
+  refs.equalizerToolbarButton.setAttribute("aria-pressed", state.equalizerEnabled ? "true" : "false");
+  refs.equalizerToolbarButton.title = state.equalizerEnabled ? "Disable Equalizer" : "Enable Equalizer";
+  refs.equalizerToolbarButton.setAttribute("aria-label", refs.equalizerToolbarButton.title);
   refs.appVolumeInput.value = String(state.appVolume);
   refs.appVolumeValue.textContent = `${Math.round(state.appVolume * 100)}%`;
   refs.equalizerBandInputs.forEach((input, index) => {
@@ -1594,15 +1684,14 @@ function renderAll() {
         : hasIssue
           ? '<span class="library-root-health needs-rescan" title="This root needs attention.">●</span>'
           : '<span class="library-root-health clean" title="Latest scan completed without errors.">●</span>';
-      const completed = root.last_scan_success_count || 0;
       const displayName = root.path.split(/[\\/]/).filter(Boolean).pop() || root.path;
       return `
       <div class="library-root-row" data-root-id="${root.id}">
-        <div class="library-root-main"><label title="${escapeHtml(root.path)}"><input class="library-root-enabled" type="checkbox" ${root.is_enabled ? "checked" : ""}> ${health}<span class="library-root-name">${escapeHtml(displayName)}</span>${root.last_scan_completed_at ? `<span class="library-root-success">(${completed} successful)</span>` : ""}</label></div>
+        <div class="library-root-main"><label title="${escapeHtml(root.path)}"><input class="library-root-enabled" type="checkbox" ${root.is_enabled ? "checked" : ""}> ${health}<span class="library-root-name">${escapeHtml(displayName)}</span></label></div>
         <div class="library-root-actions">
-          <button class="tool-button glyph-button library-root-scan" type="button" title="Scan folder" aria-label="Scan folder">↻</button>
-          <button class="tool-button glyph-button library-root-log" type="button" title="Open scan log" aria-label="Open scan log">▤</button>
-          <button class="tool-button glyph-button library-root-remove" type="button" title="Delete folder" aria-label="Delete folder">⌫</button>
+          <button class="tool-button glyph-button library-root-scan" type="button" title="Scan folder" aria-label="Scan folder"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scan-search"></use></svg></button>
+          <button class="tool-button glyph-button library-root-log" type="button" title="Open scan log" aria-label="Open scan log"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scroll-text"></use></svg></button>
+          <button class="tool-button glyph-button library-root-remove" type="button" title="Delete folder" aria-label="Delete folder"><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash-2"></use></svg></button>
         </div>
       </div>`;
     }).join("")
@@ -1989,6 +2078,20 @@ function setPlaylistMonospace(enabled) {
   renderAll();
 }
 
+function setApplicationMonospace(enabled) {
+  state.applicationMonospace = Boolean(enabled);
+  persistSettings();
+  broadcastAppearanceSettings();
+  renderAll();
+}
+
+function setPlaylistHeaderBold(enabled) {
+  state.playlistHeaderBold = Boolean(enabled);
+  persistSettings();
+  broadcastAppearanceSettings();
+  renderAll();
+}
+
 function setColumnAutoSize(enabled) {
   state.columnAutoSize = Boolean(enabled);
   persistSettings();
@@ -2005,6 +2108,8 @@ function applyAppearanceSettings(settings) {
   if (settings.playlistFontSizePt !== undefined) state.playlistFontSizePt = uiApp.normalizeFontSize(settings.playlistFontSizePt);
   if (settings.playlistTextColor !== undefined) state.playlistTextColor = uiApp.normalizeFontColor(settings.playlistTextColor);
   if (settings.playlistMonospace !== undefined) state.playlistMonospace = Boolean(settings.playlistMonospace);
+  if (settings.applicationMonospace !== undefined) state.applicationMonospace = Boolean(settings.applicationMonospace);
+  if (settings.playlistHeaderBold !== undefined) state.playlistHeaderBold = Boolean(settings.playlistHeaderBold);
   if (settings.accentColor !== undefined) state.accentColor = uiApp.normalizeAccentColor(settings.accentColor);
   persistSettings();
   renderAll();
@@ -2214,6 +2319,8 @@ uiApp.ui = {
   commitPlaylistFontSizeInput,
   setPlaylistTextColor,
   setPlaylistMonospace,
+  setApplicationMonospace,
+  setPlaylistHeaderBold,
   setColumnAutoSize,
   applyAppearanceSettings,
   applyRoutingPreferences,

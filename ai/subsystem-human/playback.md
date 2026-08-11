@@ -4,6 +4,7 @@
 
 - Playback: `.ay`, `.gbs`, `.hes`, `.kss`, `.nsf`, `.nsfe`, `.sap`, and `.spc` files use libgme; `.gym`, `.s98`, `.vgm`, and `.vgz` files use libvgm; `.usf` and `.miniusf` files use lazyusf2; `.gsf` and `.minigsf` use Highly Complete; `.2sf` and `.mini2sf` use 2SF; console-rip formats use vgmstream; and PSF/PSF2 files use Play!.
 - Playback: `.xm` files use OpenMPT; `.aif`, `.aiff`, `.flac`, `.m4a`, `.mp3`, and `.wav` files use standard audio decoding.
+- Playback: PlayStation 2 includes PSF2/minipsf2 plus vgmstream families such as `.ads`, `.adp`, `.adx`, `.aus`, `.ss2`, `.svag`, and `.xmd`; PSP includes `.at3` and `.rws`; PlayStation 3 includes `.msf`, `.txtp`, `.hd`/`.hbd`, Bink audio (`.bik`, `.bk2`, `.bika`, `.ps3`), and `.xvag`. These archive members are scanned and played through the same vgmstream route as loose files.
 - Playback: Nintendo DS `SWAV` payloads stored in `.wav` files route through vgmstream, while headerless signed 8-bit mono `_NN.wav` payloads at 22,050 Hz use the raw PCM route; both are recognized from file contents during scanning and playback.
 
 ## Controls

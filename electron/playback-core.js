@@ -55,7 +55,7 @@ const BACKEND_MODULES = Object.freeze([
     displayName: "Core Audio",
     playbackMode: "renderer-pcm",
     helper: "ffmpeg",
-    extensions: Object.freeze([".aif", ".aiff", ".flac", ".m4a", ".mp3", ".wav"]),
+    extensions: Object.freeze([".aac", ".aif", ".aiff", ".flac", ".m4a", ".mp2", ".mp3", ".tak", ".wav"]),
     scanConcurrency: 2,
     scanTimeoutSeconds: 60
   }),
@@ -74,7 +74,7 @@ const BACKEND_MODULES = Object.freeze([
     displayName: "vgmstream",
     playbackMode: "native-session",
     helper: "libgme-tool",
-    extensions: Object.freeze([".aa3", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bnk", ".fsb", ".genh", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".rws", ".ss2", ".stream", ".svag", ".vag", ".xa", ".hd", ".hbd", ".iecs", ".txtp"]),
+    extensions: Object.freeze([".aa3", ".adp", ".adpcm", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bik", ".bika", ".bk2", ".bnk", ".fsb", ".genh", ".hd", ".hbd", ".iecs", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".ps3", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".txtp", ".vag", ".xa", ".xmd", ".xvag"]),
     archivePolicy: "dependency-set-when-required",
     scanConcurrency: 2,
     scanTimeoutSeconds: 60

@@ -216,12 +216,12 @@ static NativeDecoder* native_decoder_create(const char* file_path, int track_ind
     return native_twosf_decoder_create(file_path, track_index);
   }
   const int is_vgmstream = extension && (
-    !strcasecmp(extension, ".aa3") || !strcasecmp(extension, ".adx") || !strcasecmp(extension, ".ads") || !strcasecmp(extension, ".aifc") || !strcasecmp(extension, ".adpcm") ||
-    !strcasecmp(extension, ".at3") || !strcasecmp(extension, ".aus") || !strcasecmp(extension, ".bnk") || !strcasecmp(extension, ".fsb") ||
-    !strcasecmp(extension, ".genh") || !strcasecmp(extension, ".int") || !strcasecmp(extension, ".mib") || !strcasecmp(extension, ".msf") ||
-    !strcasecmp(extension, ".mtaf") || !strcasecmp(extension, ".ogg") || !strcasecmp(extension, ".rws") || !strcasecmp(extension, ".ss2") ||
-    !strcasecmp(extension, ".stream") || !strcasecmp(extension, ".svag") || !strcasecmp(extension, ".vag") || !strcasecmp(extension, ".xa") ||
-    !strcasecmp(extension, ".hd") || !strcasecmp(extension, ".hbd") || !strcasecmp(extension, ".iecs") || !strcasecmp(extension, ".txtp"));
+    !strcasecmp(extension, ".aa3") || !strcasecmp(extension, ".adp") || !strcasecmp(extension, ".adpcm") || !strcasecmp(extension, ".adx") || !strcasecmp(extension, ".ads") || !strcasecmp(extension, ".aifc") ||
+    !strcasecmp(extension, ".at3") || !strcasecmp(extension, ".aus") || !strcasecmp(extension, ".bik") || !strcasecmp(extension, ".bika") || !strcasecmp(extension, ".bk2") || !strcasecmp(extension, ".bnk") || !strcasecmp(extension, ".fsb") ||
+    !strcasecmp(extension, ".genh") || !strcasecmp(extension, ".hd") || !strcasecmp(extension, ".hbd") || !strcasecmp(extension, ".iecs") || !strcasecmp(extension, ".int") || !strcasecmp(extension, ".mib") || !strcasecmp(extension, ".msf") ||
+    !strcasecmp(extension, ".mtaf") || !strcasecmp(extension, ".ogg") || !strcasecmp(extension, ".ps3") || !strcasecmp(extension, ".rws") || !strcasecmp(extension, ".s14") || !strcasecmp(extension, ".ss2") ||
+    !strcasecmp(extension, ".stream") || !strcasecmp(extension, ".strm") || !strcasecmp(extension, ".svag") || !strcasecmp(extension, ".swav") || !strcasecmp(extension, ".txtp") || !strcasecmp(extension, ".vag") ||
+    !strcasecmp(extension, ".xa") || !strcasecmp(extension, ".xmd") || !strcasecmp(extension, ".xvag"));
   if (is_vgmstream) {
     return native_vgmstream_decoder_create(file_path, track_index);
   }
@@ -825,7 +825,7 @@ static int is_twosf_path(const char* file_path) {
 static int is_vgmstream_path(const char* file_path) {
   const char* extension = strrchr(file_path, '.');
   if (!extension) return 0;
-  const char* supported[] = { ".aa3", ".adx", ".ads", ".aifc", ".adpcm", ".at3", ".aus", ".bnk", ".fsb", ".genh", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".rws", ".ss2", ".stream", ".svag", ".vag", ".xa", ".hd", ".hbd", ".iecs", ".txtp" };
+  const char* supported[] = { ".aa3", ".adp", ".adpcm", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bik", ".bika", ".bk2", ".bnk", ".fsb", ".genh", ".hd", ".hbd", ".iecs", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".ps3", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".txtp", ".vag", ".xa", ".xmd", ".xvag" };
   for (size_t index = 0; index < sizeof(supported) / sizeof(supported[0]); index += 1) if (!strcasecmp(extension, supported[index])) return 1;
   return 0;
 }

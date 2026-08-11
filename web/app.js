@@ -78,6 +78,10 @@ refs.nextButton.addEventListener("click", () => {
   app.playback.playAdjacent(1);
 });
 
+refs.equalizerToolbarButton.addEventListener("click", () => {
+  app.ui.setEqualizerEnabled(!state.equalizerEnabled);
+});
+
 refs.progressSlider.addEventListener("input", (event) => {
   const nextValue = Number(event.target.value);
   state.elapsedSeconds = nextValue;
@@ -212,6 +216,12 @@ refs.playlistTextColorInput.addEventListener("blur", (event) => {
 
 refs.playlistMonospaceCheckbox.addEventListener("change", (event) => {
   app.ui.setPlaylistMonospace(event.target.checked);
+});
+refs.applicationMonospaceCheckbox.addEventListener("change", (event) => {
+  app.ui.setApplicationMonospace(event.target.checked);
+});
+refs.playlistHeaderBoldCheckbox.addEventListener("change", (event) => {
+  app.ui.setPlaylistHeaderBold(event.target.checked);
 });
 
 refs.columnAutoSizeCheckbox.addEventListener("change", (event) => {
@@ -468,7 +478,13 @@ refs.sidebarDatabaseButton.addEventListener("click", () => {
   state.sidebarMode = "database";
   state.consoleViewEnabled = true;
   app.persistSettings();
-  app.ui.loadDatabaseGames().catch((error) => console.error(error));
+  if (state.databaseGames.length) {
+    app.ui.updateSidebarSearch(state.sidebarQuery);
+    return;
+  }
+  app.ui.loadDatabaseGames()
+    .then(() => app.ui.updateSidebarSearch(state.sidebarQuery))
+    .catch((error) => console.error(error));
 });
 
 if (window.spcBoy?.onTransportShortcut) {

@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld("spcBoy", {
   databaseSetRootsEnabled: (rootIds, enabled) => ipcRenderer.invoke("library:database-set-roots-enabled", rootIds, enabled),
   databaseMoveRoot: (rootId, direction) => ipcRenderer.invoke("library:database-move-root", rootId, direction),
   databaseGames: () => ipcRenderer.invoke("library:database-games"),
+  databaseSearchGames: (query) => ipcRenderer.invoke("library:database-search-games", query),
   databaseSearchBrowser: (rootPath, query) => ipcRenderer.invoke("library:database-search-browser", rootPath, query),
   databaseGameTracks: (games) => ipcRenderer.invoke("library:database-game-tracks", games),
   scanDatabaseRoot: (rootPath, deepScan = false) => ipcRenderer.invoke("library:database-scan", rootPath, Boolean(deepScan)),

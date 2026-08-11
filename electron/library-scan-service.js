@@ -183,6 +183,13 @@ async function scanLibraryRoot({
     const scanWarnings = [];
     const scanOutcomes = [];
     const indexedTracks = indexIndexedTracks(await database.indexedTrackRecords(root.id));
+    // A rescan already knows how many physical sources its previous successful
+    // index contained. It is not an exact total (the filesystem can change),
+    // but it gives discovery an honest, useful expectation without making a
+    // second full directory walk just to count entries.
+    const estimatedDiscoverySources = new Set(
+      [...indexedTracks.values()].flatMap((rows) => rows.map((row) => row.archivePath || row.path))
+    ).size;
     const archiveRowsByPath = new Map();
     for (const rows of indexedTracks.values()) {
       for (const row of rows) {
@@ -203,7 +210,8 @@ async function scanLibraryRoot({
           completed: discoveredFiles,
           total: 0,
           path: folderPath,
-          visitedFolders
+          visitedFolders,
+          estimatedTotal: estimatedDiscoverySources
         });
       },
       onIssue: ({ folderPath, error }) => {
@@ -280,6 +288,12 @@ async function scanLibraryRoot({
     const recordsBySource = new Array(trackPaths.length);
     const sourceStats = new Map();
     const sharedScanMaterializations = new Map();
+    const archivePendingSources = new Map();
+    for (const source of trackPaths) {
+      if (source.archivePath && source.archiveEntry) {
+        archivePendingSources.set(source.archivePath, (archivePendingSources.get(source.archivePath) || 0) + 1);
+      }
+    }
     let lastProgressAt = 0;
     let completedCount = reusedArchiveSourceCount;
     let nextIndex = 0;
@@ -302,6 +316,21 @@ async function scanLibraryRoot({
       }
       const session = await sessionPromise;
       return { path: session.paths.get(source.archiveEntry), session };
+    }
+    async function releaseArchiveMaterialization(source) {
+      const archivePath = source.archivePath;
+      if (!archivePath || !source.archiveEntry) return;
+      const remaining = (archivePendingSources.get(archivePath) || 1) - 1;
+      if (remaining > 0) {
+        archivePendingSources.set(archivePath, remaining);
+        return;
+      }
+      archivePendingSources.delete(archivePath);
+      const sessionPromise = sharedScanMaterializations.get(archivePath);
+      sharedScanMaterializations.delete(archivePath);
+      const session = await sessionPromise?.catch(() => null);
+      await session?.cleanup();
+      await scratchBudget.refresh();
     }
     function publishScanProgress(source, index) {
       completedCount += 1;
@@ -444,6 +473,11 @@ async function scanLibraryRoot({
             state: "successful"
           }));
         }
+        // Archive members are grouped only while that archive is being
+        // inspected. Retaining every shared extraction until the full root
+        // finishes turned the safety budget into a cumulative 8 GB cap and
+        // made later JoshW entries fail even though earlier roots were idle.
+        await releaseArchiveMaterialization(source);
         recordsBySource[index] = recordsForVariants(source, stat, variants, failureOutcome, scanVersion);
         publishScanProgress(source, index);
       }

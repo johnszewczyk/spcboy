@@ -32,7 +32,7 @@ const TWOSF_ARCHIVE_EXTENSIONS = new Set([".2sf", ".mini2sf", ".2sflib"]);
 const PSF_ARCHIVE_EXTENSIONS = new Set([".psf", ".minipsf", ".psflib", ".psf2", ".minipsf2", ".psf2lib"]);
 const PSF1_ARCHIVE_EXTENSIONS = new Set([".psf", ".minipsf", ".psflib"]);
 const PSF2_ARCHIVE_EXTENSIONS = new Set([".psf2", ".minipsf2", ".psf2lib"]);
-const VGMSTREAM_ARCHIVE_EXTENSIONS = new Set([".aa3", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bnk", ".fsb", ".genh", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".vag", ".xa", ".hd", ".hbd", ".iecs", ".txtp"]);
+const VGMSTREAM_ARCHIVE_EXTENSIONS = new Set([".aa3", ".adp", ".adpcm", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bik", ".bika", ".bk2", ".bnk", ".fsb", ".genh", ".hd", ".hbd", ".iecs", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".ps3", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".txtp", ".vag", ".xa", ".xmd", ".xvag"]);
 // TXT P definitions can refer to raw CD-XA `.DA` streams and vgmstream reads
 // sibling `.TXTH` descriptors for headerless companions. They are not tracks.
 const VGMSTREAM_COMPANION_EXTENSIONS = new Set([...VGMSTREAM_ARCHIVE_EXTENSIONS, ".da", ".txth"]);

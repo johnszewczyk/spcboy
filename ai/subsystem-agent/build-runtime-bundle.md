@@ -22,6 +22,7 @@
 - The built application contains the active `electron/`, `web/`, and `native/` runtime trees beneath `Contents/Resources/app`; it is not a loose renderer staging directory.
 - Before replacing the generated app, launch stops only a runtime whose command line names the old loose bundle or the generated SPCBoy app path. It refuses to replace a runtime still in use, preventing partial asset replacement.
 - Launch opens the generated macOS application with `open -n`.
+- Local builds use an ad-hoc signature with a stable designated requirement for `com.john.spcboy.development`; rebuilding must not turn SPCBoy into a different Files & Folders client and re-prompt for an already approved library location. A public release should replace that development signature with a stable Developer ID signature.
 - Development launches must create a new runtime rather than hand control to a pre-existing Electron instance. LaunchPad owns process/session management for its own launches.
 - Launch staging copies the complete runtime JavaScript surface from `electron/`; adding a required Electron module must not require a second hand-maintained copy list.
 - `electron/special-audio.js` is part of that complete runtime surface and must remain staged with the main process because scanner and playback routing import it.
