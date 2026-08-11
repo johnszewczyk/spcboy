@@ -1212,6 +1212,8 @@ ipcMain.handle("library:database-maintenance-summary", async () => {
     indexedTrackCount: await libraryDatabase.trackCount(),
     unlinkedSourceCount: await libraryDatabase.deadSourceCount(),
     unlinkedTrackCount: await libraryDatabase.deadTrackCount(),
+    databaseStorage: await libraryDatabase.databaseStorageMetrics(),
+    lastAtomicScan: libraryDatabase.lastAtomicScanMetrics,
     archiveCache: await archiveCacheSummary()
   };
 });

@@ -1,9 +1,11 @@
 const path = require("path");
+const fs = require("fs").promises;
 const { normalizeArchiveEntry } = require("./archive-path");
 const { SqliteWorkerClient } = require("./sqlite-worker-client");
 
 const sqliteClients = new Map();
 let nextSavepointId = 0;
+const slowSQLiteMilliseconds = Math.max(1, Number(process.env.SPCBOY_SLOW_SQL_MS) || 250);
 
 function sqlText(value) {
   return `'${String(value ?? "").replaceAll("'", "''")}'`;
@@ -136,7 +138,8 @@ async function runInSavepoint(databasePath, statements) {
   const body = Array.isArray(statements) ? statements.join("\n") : String(statements || "");
   await run(databasePath, `SAVEPOINT ${name};`);
   try {
-    await run(databasePath, body);
+    if (typeof statements === "function") await statements();
+    else await run(databasePath, body);
     await run(databasePath, `RELEASE SAVEPOINT ${name};`);
   } catch (error) {
     await run(databasePath, `ROLLBACK TO SAVEPOINT ${name}; RELEASE SAVEPOINT ${name};`).catch(() => {});
@@ -148,17 +151,42 @@ function sqliteClientKey(databasePath, lane) {
   return `${lane}\u0000${databasePath}`;
 }
 
-async function run(databasePath, sql, json = false, lane = "write") {
+function sqliteClient(databasePath, lane) {
   const key = sqliteClientKey(databasePath, lane);
   let client = sqliteClients.get(key);
   if (!client) {
-    client = new SqliteWorkerClient(databasePath);
+    client = new SqliteWorkerClient(databasePath, { queryOnly: lane !== "write" });
     sqliteClients.set(key, client);
   }
+  return client;
+}
+
+function reportSlowSQLite(startedAt, lane, operation) {
+  const elapsedMilliseconds = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  if (elapsedMilliseconds < slowSQLiteMilliseconds) return;
+  console.warn(`[SPCBoy] slow SQLite ${operation} on ${lane} lane: ${elapsedMilliseconds.toFixed(1)} ms`);
+}
+
+async function run(databasePath, sql, json = false, lane = "write") {
+  const client = sqliteClient(databasePath, lane);
+  const startedAt = process.hrtime.bigint();
   try {
     return json ? await client.query(sql) : await client.execute(sql);
   } catch (error) {
     throw new Error(`SQLite operation failed: ${error.message}`.trim());
+  } finally {
+    reportSlowSQLite(startedAt, lane, json ? "query" : "execute");
+  }
+}
+
+async function runPreparedBatch(databasePath, commands) {
+  const startedAt = process.hrtime.bigint();
+  try {
+    return await sqliteClient(databasePath, "write").executePreparedBatch(commands);
+  } catch (error) {
+    throw new Error(`SQLite prepared batch failed: ${error.message}`.trim());
+  } finally {
+    reportSlowSQLite(startedAt, "write", `prepared batch (${commands.length} commands)`);
   }
 }
 
@@ -172,6 +200,8 @@ class LibraryDatabase {
   constructor(databasePath) {
     this.databasePath = databasePath;
     this.atomicScanRootId = null;
+    this.atomicScanStartedAt = null;
+    this.lastAtomicScanMetrics = null;
   }
 
   async close() {
@@ -185,12 +215,20 @@ class LibraryDatabase {
     if (this.atomicScanRootId !== null) throw new Error("An atomic library scan is already active");
     await run(this.databasePath, "BEGIN IMMEDIATE;");
     this.atomicScanRootId = Number(rootId);
+    this.atomicScanStartedAt = process.hrtime.bigint();
   }
 
   async commitAtomicScan(rootId) {
     if (this.atomicScanRootId !== Number(rootId)) throw new Error("Atomic library scan root does not match the active transaction");
     await run(this.databasePath, "COMMIT;");
+    const durationMs = this.atomicScanStartedAt === null
+      ? 0
+      : Number(process.hrtime.bigint() - this.atomicScanStartedAt) / 1_000_000;
     this.atomicScanRootId = null;
+    this.atomicScanStartedAt = null;
+    const storage = await this.databaseStorageMetrics().catch(() => ({ databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 }));
+    this.lastAtomicScanMetrics = { rootId: Number(rootId), durationMs, ...storage };
+    console.info(`[SPCBoy] database scan published: ${durationMs.toFixed(1)} ms, WAL ${(storage.walBytes / (1024 * 1024)).toFixed(1)} MiB`);
   }
 
   async rollbackAtomicScan(rootId) {
@@ -200,7 +238,23 @@ class LibraryDatabase {
       await run(this.databasePath, "ROLLBACK;");
     } finally {
       this.atomicScanRootId = null;
+      this.atomicScanStartedAt = null;
     }
+  }
+
+  async databaseStorageMetrics() {
+    const size = async (filePath) => {
+      try {
+        return Number((await fs.stat(filePath)).size) || 0;
+      } catch (error) {
+        if (error?.code === "ENOENT") return 0;
+        throw error;
+      }
+    };
+    const [databaseBytes, walBytes, sharedMemoryBytes] = await Promise.all([
+      size(this.databasePath), size(`${this.databasePath}-wal`), size(`${this.databasePath}-shm`)
+    ]);
+    return { databaseBytes, walBytes, sharedMemoryBytes };
   }
 
   async initialize() {
@@ -480,23 +534,54 @@ class LibraryDatabase {
       ? `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)}${outcomePredicates.length ? ` AND (${outcomePredicates.join(" OR ")})` : " AND 0"};`
       : `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path);`;
     await runInSavepoint(this.databasePath, [cleanupSearch, cleanupTracks, cleanupOutcomes]);
+    const insertTrackSQL = "INSERT INTO tracks(root_id, folder_path, path, filename, extension, backend_id, track_index, track_count, file_size, modified_at, discovered_at, special_audio_kind, archive_path, archive_entry, archive_signature, source_signature, scan_completed, scan_version, browser_game, browser_system) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+    const insertMetadataSQL = "INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) VALUES(last_insert_rowid(), ?, ?, ?, ?, ?, ?);";
+    const insertSearchSQL = `INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE t.id=last_insert_rowid();`;
     for (let index = 0; index < records.length; index += 1000) {
-      const insertStatements = [];
+      const commands = [];
       for (const record of records.slice(index, index + 1000)) {
-        insertStatements.push(`INSERT INTO tracks(root_id, folder_path, path, filename, extension, backend_id, track_index, track_count, file_size, modified_at, discovered_at, special_audio_kind, archive_path, archive_entry, archive_signature, source_signature, scan_completed, scan_version, browser_game, browser_system) VALUES(${sqlNumber(rootId)}, ${sqlText(record.folderPath)}, ${sqlText(record.path)}, ${sqlText(record.filename)}, ${sqlText(record.extension)}, ${record.backendId ? sqlText(record.backendId) : "NULL"}, ${sqlNumber(record.trackIndex)}, ${sqlNumber(record.trackCount)}, ${sqlNumber(record.fileSize)}, ${sqlNumber(record.modifiedAt)}, ${sqlNumber(now)}, ${record.specialAudioKind ? sqlText(record.specialAudioKind) : "NULL"}, ${record.archivePath ? sqlText(record.archivePath) : "NULL"}, ${record.archiveEntry ? sqlText(normalizeArchiveEntry(record.archiveEntry)) : "NULL"}, ${record.archiveSignature ? sqlText(record.archiveSignature) : "NULL"}, ${record.sourceSignature ? sqlText(record.sourceSignature) : "NULL"}, ${record.scanCompleted ? 1 : 0}, ${sqlNumber(record.scanVersion)}, ${sqlText(browserGameForRecord(record))}, ${sqlText(browserSystemForRecord(record))});`);
+        commands.push({
+          sql: insertTrackSQL,
+          params: [
+            Number(rootId), record.folderPath, record.path, record.filename, record.extension,
+            record.backendId || null, Number(record.trackIndex) || 0, Number(record.trackCount) || 1,
+            Number(record.fileSize) || 0, Number(record.modifiedAt) || 0, now,
+            record.specialAudioKind || null, record.archivePath || null,
+            record.archiveEntry ? normalizeArchiveEntry(record.archiveEntry) : null,
+            record.archiveSignature || null, record.sourceSignature || null,
+            record.scanCompleted ? 1 : 0, Number(record.scanVersion) || 0,
+            browserGameForRecord(record), browserSystemForRecord(record)
+          ]
+        });
         if (record.metadata) {
-          insertStatements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) VALUES(last_insert_rowid(), ${sqlText(record.metadata.title)}, ${sqlText(record.metadata.game)}, ${sqlText(record.metadata.artist)}, ${sqlText(record.metadata.system)}, ${sqlNumber(record.metadata.playLengthMs)}, ${sqlNumber(now)});`);
+          commands.push({
+            sql: insertMetadataSQL,
+            params: [
+              record.metadata.title || "", record.metadata.game || "", record.metadata.artist || "",
+              record.metadata.system || "", Number(record.metadata.playLengthMs) || 0, now
+            ]
+          });
         }
-        insertStatements.push(`INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE t.id=last_insert_rowid();`);
+        commands.push({ sql: insertSearchSQL, params: [] });
       }
-      await runInSavepoint(this.databasePath, insertStatements);
+      await runInSavepoint(this.databasePath, () => runPreparedBatch(this.databasePath, commands));
     }
-    const outcomeStatements = [];
+    const insertOutcomeSQL = "INSERT INTO library_scan_outcomes(root_id, source_path, archive_entry, backend_id, stage, state, duration_ms, message, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);";
+    const outcomeCommands = [];
     for (const outcome of Array.isArray(scanStats.outcomes) ? scanStats.outcomes : []) {
-      outcomeStatements.push(`INSERT INTO library_scan_outcomes(root_id, source_path, archive_entry, backend_id, stage, state, duration_ms, message, created_at) VALUES(${sqlNumber(rootId)}, ${sqlText(outcome.identity?.sourcePath)}, ${outcome.identity?.archiveEntry ? sqlText(normalizeArchiveEntry(outcome.identity.archiveEntry)) : "NULL"}, ${outcome.route?.backendId ? sqlText(outcome.route.backendId) : "NULL"}, ${sqlText(outcome.stage)}, ${sqlText(outcome.state)}, ${sqlNumber(outcome.durationMs)}, ${sqlText(outcome.message)}, ${sqlNumber(now)});`);
+      outcomeCommands.push({
+        sql: insertOutcomeSQL,
+        params: [
+          Number(rootId), String(outcome.identity?.sourcePath || ""),
+          outcome.identity?.archiveEntry ? normalizeArchiveEntry(outcome.identity.archiveEntry) : null,
+          outcome.route?.backendId || null, String(outcome.stage || ""), String(outcome.state || ""),
+          Number(outcome.durationMs) || 0, String(outcome.message || ""), now
+        ]
+      });
     }
-    for (let index = 0; index < outcomeStatements.length; index += 2000) {
-      await runInSavepoint(this.databasePath, outcomeStatements.slice(index, index + 2000));
+    for (let index = 0; index < outcomeCommands.length; index += 2000) {
+      const commands = outcomeCommands.slice(index, index + 2000);
+      await runInSavepoint(this.databasePath, () => runPreparedBatch(this.databasePath, commands));
     }
     await runInSavepoint(this.databasePath, `${gameSidebarBucketStatements([rootId]).join("\n")} UPDATE library_roots SET last_scan_completed_at=${sqlNumber(now)}, last_scan_track_count=(SELECT COUNT(*) FROM tracks t WHERE t.root_id=${sqlNumber(rootId)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))), last_scan_file_count=${sqlNumber(scanStats.fileCount)}, last_scan_success_count=${sqlNumber(scanStats.successCount)}, last_scan_error_count=${sqlNumber(errorCount)}, last_scan_error=${summary ? sqlText(summary) : "NULL"}, last_scan_log=${errorLog ? sqlText(errorLog) : "NULL"}, needs_rescan=${scanStats.needsRescan ? 1 : 0} WHERE id=${sqlNumber(rootId)};`);
   }

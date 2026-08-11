@@ -2,21 +2,27 @@ const path = require("path");
 const { Worker } = require("worker_threads");
 
 class SqliteWorkerClient {
-  constructor(databasePath, { WorkerClass = Worker } = {}) {
+  constructor(databasePath, { WorkerClass = Worker, queryOnly = false } = {}) {
     if (!databasePath) throw new Error("SQLite database path is required");
     this.databasePath = databasePath;
     this.WorkerClass = WorkerClass;
+    this.queryOnly = Boolean(queryOnly);
     this.worker = null;
     this.nextRequestId = 0;
     this.pending = new Map();
   }
 
   execute(sql) {
-    return this.request(sql, false);
+    return this.request({ sql, query: false });
   }
 
   query(sql) {
-    return this.request(sql, true);
+    return this.request({ sql, query: true });
+  }
+
+  executePreparedBatch(commands) {
+    if (!Array.isArray(commands)) throw new Error("SQLite prepared batch commands are required");
+    return this.request({ operation: "preparedBatch", commands });
   }
 
   async close() {
@@ -26,12 +32,12 @@ class SqliteWorkerClient {
     if (worker) await worker.terminate();
   }
 
-  request(sql, query) {
+  request(payload) {
     const worker = this.ensureWorker();
     const id = ++this.nextRequestId;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      worker.postMessage({ id, sql, query });
+      worker.postMessage({ id, ...payload });
     });
   }
 
@@ -39,7 +45,7 @@ class SqliteWorkerClient {
     if (this.worker) return this.worker;
 
     const worker = new this.WorkerClass(path.join(__dirname, "sqlite-worker.js"), {
-      workerData: { databasePath: this.databasePath }
+      workerData: { databasePath: this.databasePath, queryOnly: this.queryOnly }
     });
     this.worker = worker;
 
