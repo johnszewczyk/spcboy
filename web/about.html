@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>About SPCBoy</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="about-body">
+    <main class="about-panel">
+      <header class="about-header">
+        <div>
+          <h1>SPCBoy</h1>
+          <p class="about-muted">Game-music and audio playback for macOS.</p>
+        </div>
+        <span class="about-version">SPCBoy 0.1.0</span>
+      </header>
+
+      <section class="about-section">
+        <h2>Playback and runtime software</h2>
+        <div class="about-dependency-grid">
+          <article class="about-dependency">
+            <h3>libgme</h3>
+            <p>AY, GBS, HES, KSS, NSF, NSFE, SAP, and SPC playback.</p>
+            <p><strong>Version:</strong> vendored snapshot; upstream version is not declared in this checkout.</p>
+            <p><strong>License:</strong> LGPL-2.1-or-later · <a href="https://github.com/libgme/game-music-emu">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>libvgm</h3>
+            <p>VGM, VGZ, GYM, and S98 playback and metadata inspection.</p>
+            <p><strong>Version:</strong> 0.1 (vendored CMake project).</p>
+            <p><strong>License:</strong> mixed upstream notices · <a href="https://github.com/ValleyBell/libvgm">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>vgmstream</h3>
+            <p>Console game-audio streams, ADPCM, XA, VAG, ATRAC, and bank/container formats.</p>
+            <p><strong>Version:</strong> r2117 (vendored static version).</p>
+            <p><strong>License:</strong> upstream and codec notices · <a href="https://github.com/vgmstream/vgmstream">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>lazyusf2</h3>
+            <p>Nintendo 64 USF and miniUSF playback.</p>
+            <p><strong>Version:</strong> Mupen core API 2.0.0.</p>
+            <p><strong>License:</strong> vendored source notices · <a href="https://github.com/Lazyusf2/lazyusf2">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>mGBA / Highly Complete</h3>
+            <p>GSF and miniGSF playback through the vendored GBA core.</p>
+            <p><strong>Version:</strong> mGBA 0.11.0.</p>
+            <p><strong>License:</strong> MPL-2.0 · <a href="https://github.com/mgba-emu/mgba">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>2sf2wav / DeSmuME</h3>
+            <p>Nintendo DS 2SF and mini2SF playback with library dependencies.</p>
+            <p><strong>Version:</strong> DeSmuME 0.9.9, svn 4608; 2sf2wav snapshot.</p>
+            <p><strong>License:</strong> GPL-2.0-or-later and vendored notices · <a href="https://bitbucket.org/ahigerd/2sf2wav">Homepage</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>Play!</h3>
+            <p>PlayStation and PlayStation 2 PSF/PSF2 playback.</p>
+            <p><strong>Version:</strong> 0.30.</p>
+            <p><strong>License:</strong> vendored source notices · <a href="https://github.com/jpd002/Play-">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>libopenmpt</h3>
+            <p>XM and tracker-module metadata inspection and PCM rendering through <code>openmpt123</code>.</p>
+            <p><strong>Version:</strong> external runtime; detected from the installed command.</p>
+            <p><strong>License:</strong> BSD-3-Clause · <a href="https://lib.openmpt.org/libopenmpt/">Homepage</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>FFmpeg</h3>
+            <p>Standard audio metadata and PCM rendering through <code>ffprobe</code>/<code>ffmpeg</code>.</p>
+            <p><strong>Version:</strong> external runtime; detected from the installed command.</p>
+            <p><strong>License:</strong> LGPL-2.1-or-later or GPL-2-or-later depending on build · <a href="https://ffmpeg.org/">Homepage</a></p>
+          </article>
+        </div>
+      </section>
+
+      <section class="about-section">
+        <h2>Application and archive runtime</h2>
+        <div class="about-dependency-grid">
+          <article class="about-dependency">
+            <h3>Electron</h3>
+            <p>macOS application shell and isolated Chromium renderer.</p>
+            <p><strong>Version:</strong> 43.0.0.</p>
+            <p><strong>License:</strong> MIT · <a href="https://github.com/electron/electron">GitHub</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>SQLite</h3>
+            <p>Persistent library index and scan database through Node's bundled SQLite runtime.</p>
+            <p><strong>Version:</strong> system runtime; detected from the installed command.</p>
+            <p><strong>License:</strong> public domain · <a href="https://sqlite.org/">Homepage</a></p>
+          </article>
+          <article class="about-dependency">
+            <h3>Archive tools</h3>
+            <p>macOS <code>bsdtar</code>/<code>unzip</code>, Homebrew <code>7zz</code>, <code>zstd</code>, <code>lsar</code>, and <code>unar</code> support ZIP, 7z, RSN, TZST, and TAR.ZST sources.</p>
+            <p><strong>Version:</strong> external system/runtime tools; detected from installed commands.</p>
+            <p><strong>Licenses:</strong> each tool's own distribution notices · <a href="https://libarchive.org/">libarchive</a> · <a href="https://www.7-zip.org/">7-Zip</a> · <a href="https://github.com/facebook/zstd">zstd</a></p>
+          </article>
+        </div>
+      </section>
+
+      <p class="about-muted about-notice">Complete notices are included in <code>THIRD_PARTY_LICENSES.md</code> and the vendored source trees. External command versions reflect the runtime installation, not a bundled copy.</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+[submodule "vendor/lazyusf2"]
+	path = vendor/lazyusf2
+	url = https://gitlab.com/kode54/lazyusf2.git
+[submodule "vendor/libvgm"]
+	path = vendor/libvgm
+	url = https://github.com/ValleyBell/libvgm.git
+[submodule "vendor/play"]
+	path = vendor/play
+	url = https://github.com/jpd002/Play-.git
+[submodule "vendor/vgmstream"]
+	path = vendor/vgmstream
+	url = https://github.com/vgmstream/vgmstream.git

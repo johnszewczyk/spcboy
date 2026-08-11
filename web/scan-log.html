@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scan Log</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="scan-log-window">
+    <main class="scan-log-window-shell">
+      <section class="scan-log-panel" role="main" aria-label="Scan log">
+        <div class="scan-log-header">
+          <span>Scan Log</span>
+          <button id="scan-log-copy" class="tool-button" type="button">Copy</button>
+        </div>
+        <div id="scan-log-summary" class="scan-log-summary"></div>
+        <pre id="scan-log-body" class="scan-log-body" tabindex="0" aria-label="Scan log output"></pre>
+      </section>
+    </main>
+    <script src="./scan-log.js"></script>
+  </body>
+</html>

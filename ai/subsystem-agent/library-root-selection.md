@@ -1,0 +1,31 @@
+# Library Root Selection
+
+## Scope
+
+- Open-folder or file dialog behavior.
+- Default-root resolution.
+- Root and selected-folder restore.
+
+## Current State
+
+- Root library is chosen through a native Electron open dialog that accepts either a folder or a file path.
+- Database root addition uses a native folder-only multi-selection dialog and returns the resolved, de-duplicated root paths to the renderer.
+- Opening a file path loads its containing folder as the library root.
+- Renderer settings persist `rootPath` and `selectedFolderPath` in `localStorage`.
+- App bootstrap first tries to refresh the persisted root and selected folder.
+- If persisted paths fail, bootstrap uses the main-process default root lookup.
+- Default root lookup uses `SPCBOY_LIBRARY_ROOT` when valid.
+- If that environment variable is absent or invalid, the app uses the sibling `spcsets_extracted` directory next to the app path when present.
+
+## Rules
+
+- Keep root selection behavior explicit.
+- Keep default-root resolution aligned with launch behavior.
+- Keep persisted root restoration aligned with renderer settings.
+
+## Files
+
+- [electron/main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
+- [electron/preload.js](/Users/john/Downloads/Code/SPCBoy/electron/preload.js)
+- [web/app-core.js](/Users/john/Downloads/Code/SPCBoy/web/app-core.js)
+- [web/app-ui.js](/Users/john/Downloads/Code/SPCBoy/web/app-ui.js)
