@@ -1150,21 +1150,26 @@ ipcMain.handle("library:database-add-root", async (_event, rootPath) => {
   broadcastLibraryRoots(await libraryDatabase.loadRoots());
   return roots;
 });
-ipcMain.handle("library:database-remove-root", async (_event, rootId) => libraryDatabase.removeRoot(rootId));
+ipcMain.handle("library:database-remove-root", async (_event, rootId) => {
+  const roots = await libraryDatabase.removeRoot(rootId);
+  broadcastLibraryRoots(roots);
+  return roots;
+});
 ipcMain.handle("library:database-set-root-enabled", async (_event, rootId, enabled) => {
   const roots = await libraryDatabase.setRootEnabled(rootId, enabled);
   broadcastLibraryRoots(roots);
   return roots;
 });
 ipcMain.handle("library:database-set-roots-enabled", async (_event, rootIds, enabled) => {
-  for (const rootId of Array.isArray(rootIds) ? rootIds : []) {
-    await libraryDatabase.setRootEnabled(rootId, enabled);
-  }
-  const roots = await libraryDatabase.loadRoots();
+  const roots = await libraryDatabase.setRootsEnabled(rootIds, enabled);
   broadcastLibraryRoots(roots);
   return roots;
 });
-ipcMain.handle("library:database-move-root", async (_event, rootId, direction) => libraryDatabase.moveRoot(rootId, direction));
+ipcMain.handle("library:database-move-root", async (_event, rootId, direction) => {
+  const roots = await libraryDatabase.moveRoot(rootId, direction);
+  broadcastLibraryRoots(roots);
+  return roots;
+});
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
 ipcMain.handle("library:database-search-games", async (_event, query) => libraryDatabase.searchGames(query));
 ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>

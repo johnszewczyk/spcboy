@@ -19,7 +19,6 @@
 - Single-click browser navigation does not stop or replace an active playback session; explicit activation replaces the playlist and starts the selected target.
 - The sidebar context menu offers Show in Finder, Play Now, and Queue. Queue appends unique tracks while preserving the active transport session.
 - Selecting a folder rerenders the tree so its expanded/collapsed directory state and selected node stay synchronized with the playlist.
-- The selected-folder playlist includes supported audio files and playable archive members recursively beneath that folder.
 - OS file drops route through the main-process path resolver; unsupported dropped files are rejected before opening.
 - Sidebar branches expand to keep the selected folder visible.
 - The renderer auto-expands ancestors of the selected folder and keeps it scrolled into view.

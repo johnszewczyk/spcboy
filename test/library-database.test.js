@@ -41,6 +41,9 @@ test("upgrades a pre-browser-bucket library before creating its bucket index", a
     await columnClient.close();
     assert.equal(columns.some((column) => column.name === "browser_game"), true);
     assert.equal(columns.some((column) => column.name === "browser_system"), true);
+    const rootColumns = await columnClient.query("PRAGMA table_info(library_roots);");
+    assert.equal(rootColumns.some((column) => column.name === "last_scan_started_at"), true);
+    assert.equal(rootColumns.some((column) => column.name === "needs_rescan"), true);
     await database.close();
   } finally {
     await legacy.close().catch(() => {});
@@ -120,6 +123,9 @@ test("persists scan fingerprints and archive signatures", async () => {
     const purge = await database.deleteDeadSources();
     assert.deepEqual(purge, { purgedSourceCount: 1, purgedTrackCount: 1 });
     assert.equal((await database.indexedTrackRecords(root.id)).length, 0);
+    const searchClient = new SqliteWorkerClient(database.databasePath);
+    assert.equal(Number((await searchClient.query("SELECT COUNT(*) AS count FROM track_search;"))[0].count), 0);
+    await searchClient.close();
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
@@ -161,6 +167,45 @@ test("keeps same game and system separate for each library root", async () => {
     const smoGame = games.find((game) => game.rootId === smoRoot.id);
     assert.deepEqual((await database.tracksForGames([joshGame])).map((row) => row.path), [path.join(joshPath, "Final Fight.spc")]);
     assert.deepEqual((await database.tracksForGames([smoGame])).map((row) => row.path), [path.join(smoPath, "Final Fight.spc")]);
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("atomic scans keep the committed sidebar visible and roll back failed replacement", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-atomic-scan-"));
+  try {
+    const database = new LibraryDatabase(path.join(fixtureRoot, "Library.sqlite"));
+    await database.initialize();
+    const root = await database.ensureRoot(path.join(fixtureRoot, "library"));
+    const record = (game) => ({
+      folderPath: fixtureRoot,
+      path: path.join(fixtureRoot, `${game}.spc`),
+      filename: `${game}.spc`,
+      extension: ".spc",
+      trackIndex: 0,
+      trackCount: 1,
+      fileSize: 1,
+      modifiedAt: 1,
+      scanCompleted: true,
+      scanVersion: 1,
+      metadata: { title: "Theme", game, artist: "", system: "SNES", playLengthMs: 1 }
+    });
+
+    await database.replaceTracks(root.id, [record("Old")], { fileCount: 1, successCount: 1 });
+    assert.deepEqual((await database.loadGames()).map((game) => game.name), ["Old"]);
+
+    await database.beginAtomicScan(root.id);
+    await database.replaceTracks(root.id, [record("Uncommitted")], { fileCount: 1, successCount: 1 });
+    assert.deepEqual((await database.loadGames()).map((game) => game.name), ["Old"]);
+    await database.rollbackAtomicScan(root.id);
+    assert.deepEqual((await database.loadGames()).map((game) => game.name), ["Old"]);
+
+    await database.beginAtomicScan(root.id);
+    await database.replaceTracks(root.id, [record("New")], { fileCount: 1, successCount: 1 });
+    await database.commitAtomicScan(root.id);
+    assert.deepEqual((await database.loadGames()).map((game) => game.name), ["New"]);
+    await database.close();
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }

@@ -16,6 +16,7 @@ let databaseConsoleGroups = [];
 let libraryProgressRenderTimer = 0;
 const collapsedDatabaseConsoles = new Set();
 let browserClickTimer = 0;
+let databaseClickTimer = 0;
 let sidebarSearchTimer = 0;
 let browserSelectionGeneration = 0;
 let playlistLoadGeneration = 0;
@@ -586,18 +587,22 @@ function makeDatabaseGameButton(game) {
     // Database game rows are final sidebar leaves. Selecting one previews its
     // indexed tracks in the playlist; activation is still reserved for
     // double-click or Enter.
-    loadDatabaseGame(game).catch((error) => console.error("[SPCBoy] database preview failed", error));
+    window.clearTimeout(databaseClickTimer);
+    databaseClickTimer = window.setTimeout(() => {
+      loadDatabaseGame(game).catch((error) => reportDatabaseSidebarError("preview the selected game", error));
+    }, 220);
   });
   button.addEventListener("dblclick", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    window.clearTimeout(databaseClickTimer);
     state.selectedDatabaseGameKey = databaseGameKey(game);
     state.selectedDatabaseConsoleName = databaseConsoleName(game);
     persistSettings();
     loadDatabaseGame(game).then(() => {
       if (state.playlist[0]) return uiApp.playback.playTrack(state.playlist[0].id, 0);
       return undefined;
-    }).catch((error) => console.error("[SPCBoy] database activation failed", error));
+    }).catch((error) => reportDatabaseSidebarError("play the selected game", error));
   });
   button.addEventListener("contextmenu", (event) => {
     state.selectedDatabaseGameKey = databaseGameKey(game);
@@ -674,7 +679,7 @@ function renderDatabaseGames() {
           event.stopPropagation();
           state.selectedDatabaseConsoleName = consoleName;
           state.selectedDatabaseGameKey = null;
-          activateDatabaseSelection().catch((error) => console.error("[SPCBoy] database console activation failed", error));
+          activateDatabaseSelection().catch((error) => reportDatabaseSidebarError("play the selected console", error));
         });
         groupedGames.get(consoleName).forEach((game) => {
           const button = makeDatabaseGameButton(game);
@@ -717,10 +722,10 @@ function renderDatabaseGames() {
     }
   }
 
-  databaseEmptyState.classList.toggle("is-hidden", visibleCount > 0);
-  databaseEmptyState.textContent = state.databaseGames.length
+  databaseEmptyState.classList.toggle("is-hidden", !state.databaseSidebarError && visibleCount > 0);
+  databaseEmptyState.textContent = state.databaseSidebarError || (state.databaseGames.length
     ? "No database games match this search."
-    : "Scan a library folder to populate the database.";
+    : "Scan a library folder to populate the database.");
   scheduleSelectionIndicators();
 }
 
@@ -765,7 +770,13 @@ async function loadDatabaseGames() {
 
 async function refreshDatabaseGamesForVisibleRoots() {
   const previousSelection = state.selectedDatabaseGameKey;
-  state.databaseGames = await window.spcBoy.databaseGames();
+  try {
+    state.databaseGames = await window.spcBoy.databaseGames();
+  } catch (error) {
+    reportDatabaseSidebarError("read the database sidebar", error);
+    throw error;
+  }
+  state.databaseSidebarError = "";
   state.databaseSearchGames = null;
   if (previousSelection && !state.databaseGames.some((game) => databaseGameKey(game) === previousSelection)) {
     state.selectedDatabaseGameKey = null;
@@ -791,10 +802,14 @@ function updateSidebarSearch(query) {
       window.spcBoy.databaseSearchGames(requestedQuery)
         .then((games) => {
           if (databaseGeneration !== state.databaseSearchGeneration || state.sidebarMode !== "database" || state.sidebarQuery.trim() !== requestedQuery) return;
+          state.databaseSidebarError = "";
           state.databaseSearchGames = Array.isArray(games) ? games : [];
           renderSidebar();
         })
-        .catch((error) => console.error("[SPCBoy] database sidebar search failed", error));
+        .catch((error) => {
+          if (databaseGeneration !== state.databaseSearchGeneration) return;
+          reportDatabaseSidebarError("search the database", error);
+        });
     }, 120);
     return;
   }
@@ -841,6 +856,13 @@ async function loadDatabaseGame(game) {
   await loadDatabaseGamesIntoPlaylist([game]);
 }
 
+function reportDatabaseSidebarError(action, error) {
+  const detail = String(error?.message || error || "Unknown database error");
+  state.databaseSidebarError = `Could not ${action}: ${detail}`;
+  console.error(`[SPCBoy] could not ${action}`, error);
+  if (state.sidebarMode === "database") renderDatabaseGames();
+}
+
 function databaseRowsToPlaylistTracks(rows, games) {
   const fallbackGame = games[0] || {};
   return rows.map((row, index) => ({
@@ -870,6 +892,7 @@ async function loadDatabaseGamesIntoPlaylist(games) {
   const loadGeneration = ++playlistLoadGeneration;
   const rows = await window.spcBoy.databaseGameTracks(games);
   if (loadGeneration !== playlistLoadGeneration) return;
+  state.databaseSidebarError = "";
   state.selectedDatabaseGameKey = games.length === 1 ? databaseGameKey(games[0]) : null;
   state.playlist = databaseRowsToPlaylistTracks(rows, games);
   state.selectedTrackId = state.playlist[0]?.id || null;

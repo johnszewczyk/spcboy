@@ -17,6 +17,7 @@
 
 - The database lives in Electron's user-data directory as `Library.sqlite`.
 - A root scan replaces live records for that root transactionally while retaining records marked in `dead_sources`.
+- WAL readers keep the previous committed library visible while the scanner's writer holds one outer transaction. Bounded track/outcome batches use savepoints; tracks, FTS rows, game projection, outcomes, and root statistics publish together or roll back together.
 - Game rows are root-scoped by `root_id + browser_game + browser_system`. Same-title/same-console records in different library roots remain separate, and database activation binds that exact tuple.
 - Existing committed records remain available if a scan fails before its transaction commits.
 - A single archive listing failure is retained as a root scan warning without discarding successfully indexed files from the same root.
@@ -25,6 +26,9 @@
 ## Critical Engineering Notes
 
 - The schema stores library roots, indexed tracks, and inspected metadata.
+- `game_sidebar_buckets` is the durable root-scoped Database sidebar projection. An unfiltered sidebar read uses this projection rather than grouping every track; FTS search resolves matching bucket identities and joins them back to the projection for counts.
+- SQLite schema additions inspect `PRAGMA table_info` before each `ALTER TABLE`; an unexpected migration error is fatal and must not be caught as though the column already existed.
+- Database sidebar/search and game activation use separate worker connections from the serialized writer. WAL preserves a committed snapshot while preventing stale search work from blocking activation.
 - `tracks.browser_game` and `tracks.browser_system` store the normalized sidebar bucket at scan time. For a collection source, a recognized terminal filename tag (for example `[PS1]`) determines its console; otherwise a console-named parent folder does. Decoder probe labels are never console identity. The composite `tracks_browser_bucket_index` supports exact root-scoped game activation; do not rebuild game identity from `track_metadata` during selection.
 - Existing databases populate empty buckets once in `browser-buckets-v1`, then receive the one-time `browser-buckets-v3` normalization. Archive containers remain one game leaf even when a subset of decoded track tags disagree. That work reads stored paths and metadata only; it does not rescan, extract, or decode audio, and it must not repeat at later launches.
 - Indexed tracks persist special payload routing, including Nintendo DS `SWAV` and raw 22,050 Hz PCM WAV recognition, so database playback retains the scanner's content-based decoder choice.
@@ -34,6 +38,8 @@
 - Queue-time metadata updates only matching existing `tracks` rows; it upserts `track_metadata` without changing `scan_completed`, scan signatures, or retry state.
 - Database mode defaults to expandable console groups; the Console View setting controls whether those parent disclosure rows are shown or the game list is flattened.
 - Root removal explicitly deletes that root's indexed tracks before deleting the root record.
+- Add, remove, move, single-enable, and batch-enable root changes return one refreshed root list and broadcast it to both windows. Batch enablement is one SQL update, not one roots reload per checkbox.
+- Purging retained missing sources deletes their `track_search` rows before deleting tracks; FTS must never retain orphan row IDs.
 - `track_search` is the persistent FTS index for filename, source/archive path, archive entry, bucket names, and scanned tags. Folder search scopes FTS matches to the active Folder root; Database search scopes them to enabled roots and returns whole game buckets. The renderer immediately filters its loaded game buckets, then replaces that optimistic subset with the FTS-complete result. Never reintroduce a concatenated `LIKE '%term%'` table scan on each keystroke.
 - Libgme playback commands receive the stored track index so NSF/GBS internal tracks start at the selected song rather than always starting at track zero.
 

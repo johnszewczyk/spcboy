@@ -55,6 +55,9 @@ test("releases each completed archive session before the next archive consumes t
   const database = {
     async ensureRoot() { return roots[0]; },
     async markScanStarted() {},
+    async beginAtomicScan() {},
+    async commitAtomicScan() {},
+    async rollbackAtomicScan() {},
     async indexedTrackRecords() { return []; },
     async restoreSources() {},
     async markUndiscoveredSourcesDead() {},
@@ -89,10 +92,13 @@ test("scan service coordinates discovery, inspection, progress, and one database
   await fs.writeFile(trackPath, "fixture", "utf8");
 
   const roots = [{ id: 7, path: rootPath, last_scan_track_count: 0 }];
-  const calls = { inspected: [], probed: [], progress: [], replaced: null };
+  const calls = { inspected: [], probed: [], progress: [], replaced: null, began: false, committed: false };
   const database = {
     async ensureRoot() { return roots[0]; },
     async markScanStarted() {},
+    async beginAtomicScan() { calls.began = true; },
+    async commitAtomicScan() { calls.committed = true; },
+    async rollbackAtomicScan() {},
     async indexedTrackRecords() { return [{ path: path.join(rootPath, "previously-indexed.nsf"), archivePath: null, archiveEntry: null }]; },
     async restoreSources() {},
     async markUndiscoveredSourcesDead() {},
@@ -151,6 +157,8 @@ test("scan service coordinates discovery, inspection, progress, and one database
   assert.equal(calls.replaced.records.length, 1);
   assert.equal(calls.replaced.records[0].metadata.title, "Song");
   assert.equal(calls.replaced.records[0].scanCompleted, true);
+  assert.equal(calls.began, true);
+  assert.equal(calls.committed, true);
   assert.equal(calls.replaced.details.fileCount, 1);
   assert.equal(result.trackCount, 1);
   assert.equal(result.warningCount, 0);
@@ -180,6 +188,7 @@ test("cancelled archive scans settle only after their scratch root is removed", 
   const root = { id: 1, path: rootPath, last_scan_track_count: 0 };
   const database = {
     async ensureRoot() { return root; }, async markScanStarted() {}, async indexedTrackRecords() { return []; },
+    async beginAtomicScan() {}, async commitAtomicScan() {}, async rollbackAtomicScan() {},
     async restoreSources() {}, async markUndiscoveredSourcesDead() {}, async replaceTracks() { throw new Error("cancelled scan must not commit"); },
     async loadRoots() { return [root]; }, async markScanFailed() { throw new Error("cancellation must not mark scan failed"); }
   };
@@ -212,6 +221,9 @@ test("archive members that fail their recognized codec route retain the retry re
   const database = {
     async ensureRoot() { return roots[0]; },
     async markScanStarted() {},
+    async beginAtomicScan() {},
+    async commitAtomicScan() {},
+    async rollbackAtomicScan() {},
     async indexedTrackRecords() { return []; },
     async restoreSources() {},
     async markUndiscoveredSourcesDead() {},

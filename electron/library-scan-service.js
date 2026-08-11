@@ -179,6 +179,7 @@ async function scanLibraryRoot({
   });
   const reportProgress = (progress) => onProgress({ ...progress, scratch: scratchBudget.snapshot() });
   try {
+    await database.beginAtomicScan(root.id);
     reportProgress({ operation: "prepare", completed: 0, total: 0, path: resolvedRoot });
     const scanWarnings = [];
     const scanOutcomes = [];
@@ -518,10 +519,12 @@ async function scanLibraryRoot({
         ? !reusedArchivePaths.has(source.archivePath)
         : !reusedLoosePaths.has(source.path)) : null
     });
+    await database.commitAtomicScan(root.id);
     const rootRows = await database.loadRoots();
     const currentRoot = rootRows.find((entry) => Number(entry.id) === Number(root.id));
     return { root: rootRows, trackCount: Number(currentRoot?.last_scan_track_count) || 0, warningCount: errorCount, scanSummary, scratch: scratchBudget.snapshot() };
   } catch (error) {
+    await database.rollbackAtomicScan(root.id);
     if (!isCancellation(error)) await database.markScanFailed(root.id, error.message);
     throw error;
   }
