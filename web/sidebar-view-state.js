@@ -1,0 +1,19 @@
+(() => {
+  function resolve(storedMode, searchQuery) {
+    const normalizedMode = storedMode === "database" ? "database" : "folders";
+    const query = String(searchQuery || "").trim();
+    const isTemporary = query.length > 0;
+    const view = isTemporary ? "search" : normalizedMode;
+    const contentMode = view === "folders" ? "folders" : "database";
+    return Object.freeze({
+      storedMode: normalizedMode,
+      query,
+      view,
+      contentMode,
+      resultSource: contentMode === "folders" ? "folder-tree" : "database-index",
+      isTemporary
+    });
+  }
+
+  window.SPCBoySidebarViewState = Object.freeze({ resolve });
+})();

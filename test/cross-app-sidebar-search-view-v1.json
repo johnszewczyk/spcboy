@@ -1,0 +1,84 @@
+{
+  "contract": "cocoaspice-spcboy-sidebar-search-view",
+  "version": 1,
+  "cases": [
+    {
+      "id": "folder-search-is-temporary-and-clears-to-folders",
+      "initialMode": "folders",
+      "steps": [
+        {
+          "setQuery": "",
+          "expected": { "storedMode": "folders", "query": "", "view": "folders", "contentMode": "folders", "resultSource": "folder-tree", "isTemporary": false }
+        },
+        {
+          "setQuery": "Castlevania",
+          "expected": { "storedMode": "folders", "query": "Castlevania", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        },
+        {
+          "setQuery": "",
+          "expected": { "storedMode": "folders", "query": "", "view": "folders", "contentMode": "folders", "resultSource": "folder-tree", "isTemporary": false }
+        }
+      ]
+    },
+    {
+      "id": "database-search-is-temporary-and-clears-to-database",
+      "initialMode": "database",
+      "steps": [
+        {
+          "setQuery": "  Silent Hill  ",
+          "expected": { "storedMode": "database", "query": "Silent Hill", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        },
+        {
+          "setQuery": "",
+          "expected": { "storedMode": "database", "query": "", "view": "database", "contentMode": "database", "resultSource": "database-index", "isTemporary": false }
+        }
+      ]
+    },
+    {
+      "id": "underlying-mode-can-change-without-covering-search",
+      "initialMode": "folders",
+      "steps": [
+        {
+          "setQuery": "Chrono",
+          "expected": { "storedMode": "folders", "query": "Chrono", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        },
+        {
+          "setMode": "database",
+          "expected": { "storedMode": "database", "query": "Chrono", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        },
+        {
+          "setMode": "folders",
+          "expected": { "storedMode": "folders", "query": "Chrono", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        },
+        {
+          "setQuery": "",
+          "expected": { "storedMode": "folders", "query": "", "view": "folders", "contentMode": "folders", "resultSource": "folder-tree", "isTemporary": false }
+        }
+      ]
+    },
+    {
+      "id": "whitespace-does-not-open-search",
+      "initialMode": "database",
+      "steps": [
+        {
+          "setQuery": " \t ",
+          "expected": { "storedMode": "database", "query": "", "view": "database", "contentMode": "database", "resultSource": "database-index", "isTemporary": false }
+        }
+      ]
+    },
+    {
+      "id": "replacement-query-remains-independent-of-stored-mode",
+      "initialMode": "folders",
+      "steps": [
+        {
+          "setQuery": "Castlevania",
+          "expected": { "storedMode": "folders", "query": "Castlevania", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        },
+        {
+          "setQuery": "Metroid",
+          "expected": { "storedMode": "folders", "query": "Metroid", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
+        }
+      ]
+    }
+  ]
+}

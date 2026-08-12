@@ -1,6 +1,7 @@
 (() => {
 const uiApp = window.SPCBoyApp;
 const { state, refs, persistSettings, loadSettings, targetPlaybackSeconds, COLUMN_DEFS } = uiApp;
+const sidebarViewState = window.SPCBoySidebarViewState;
 const expandedFolders = new Set();
 let draggedColumnId = null;
 let metadataRefreshFrame = 0;
@@ -18,6 +19,10 @@ const collapsedDatabaseConsoles = new Set();
 let browserClickTimer = 0;
 let databaseClickTimer = 0;
 let sidebarSearchTimer = 0;
+
+function currentSidebarView() {
+  return sidebarViewState.resolve(state.sidebarMode, state.sidebarQuery);
+}
 let browserSelectionGeneration = 0;
 let playlistLoadGeneration = 0;
 let selectedBrowserButton = null;
@@ -281,7 +286,7 @@ function moveBrowserSelection(delta) {
 
 function jumpFocusedListToEdge(toEnd, focused = document.activeElement) {
   if (refs.treeRoot.contains(focused)) {
-    if (state.sidebarMode === "folders") {
+    if (currentSidebarView().contentMode === "folders") {
       const nodes = visibleBrowserNodes();
       if (nodes.length) selectBrowserNode(nodes[toEnd ? nodes.length - 1 : 0], { focus: true });
       return true;
@@ -744,7 +749,7 @@ function setAllDatabaseConsolesCollapsed(collapsed) {
 }
 
 async function setAllSidebarNodesCollapsed(collapsed) {
-  if (state.sidebarQuery.trim() || state.sidebarMode === "database") {
+  if (currentSidebarView().contentMode === "database") {
     setAllDatabaseConsolesCollapsed(collapsed);
     return;
   }
@@ -857,7 +862,7 @@ function reportDatabaseSidebarError(action, error) {
   const detail = String(error?.message || error || "Unknown database error");
   state.databaseSidebarError = `Could not ${action}: ${detail}`;
   console.error(`[SPCBoy] could not ${action}`, error);
-  if (state.sidebarQuery.trim() || state.sidebarMode === "database") renderDatabaseGames();
+  if (currentSidebarView().contentMode === "database") renderDatabaseGames();
 }
 
 function databaseRowsToPlaylistTracks(rows, games) {
@@ -962,7 +967,7 @@ async function activateFocusedItem(focusTarget = document.activeElement) {
 }
 
 function renderSidebar() {
-  const showDatabase = Boolean(state.sidebarQuery.trim()) || state.sidebarMode === "database";
+  const showDatabase = currentSidebarView().contentMode === "database";
   const nextMode = state.sidebarMode === "database" ? "folders" : "database";
   refs.sidebarViewToggleButton.title = nextMode === "database" ? "Show Database" : "Show Folders";
   refs.sidebarViewToggleButton.setAttribute("aria-label", refs.sidebarViewToggleButton.title);

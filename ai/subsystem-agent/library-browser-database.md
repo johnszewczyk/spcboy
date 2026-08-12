@@ -44,6 +44,7 @@
 - Add, remove, move, single-enable, and batch-enable root changes return one refreshed root list and broadcast it to both windows. Batch enablement is one SQL update, not one roots reload per checkbox.
 - Purging retained missing sources deletes their `track_search` rows before deleting tracks; FTS must never retain orphan row IDs.
 - `track_search` is the persistent FTS index for filename, source/archive path, archive entry, bucket names, and scanned tags. A non-empty sidebar query always searches enabled-root game buckets as a temporary third view, independent of the stored Folders/Database mode. The renderer immediately filters loaded buckets, then replaces that optimistic subset with the FTS-complete result. Clearing search returns to the stored underlying view.
+- `sidebar-view-state.js` resolves the stored mode plus trimmed query into Folders, Database, or temporary Search. Search always has database content and that same resolution governs rendering and keyboard fallback, preventing the covered Folders mode from intercepting Search activation or Home/End navigation.
 - Libgme playback commands receive the stored track index so NSF/GBS internal tracks start at the selected song rather than always starting at track zero.
 
 ## Files
@@ -55,6 +56,7 @@
 - [main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [playlist-archive-metadata.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-archive-metadata.js)
 - [Cross-app identity fixture](/Users/john/Downloads/Code/SPCBoy/test/cross-app-library-identity-v1.json)
+- [Cross-app search-view fixture](/Users/john/Downloads/Code/SPCBoy/test/cross-app-sidebar-search-view-v1.json)
 - [Sister-app conformance contract](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-conformance.md)
 - [app-library.js](/Users/john/Downloads/Code/SPCBoy/web/app-library.js)
 - [playback-core.js](/Users/john/Downloads/Code/SPCBoy/electron/playback-core.js)

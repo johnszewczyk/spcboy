@@ -11,6 +11,7 @@
 
 - Search: is a temporary third view that returns the same indexed game results whether Folders or Database was selected. Clearing it restores the prior view.
 - Search: Console View groups those results when enabled.
+- Search: Enter and list-edge navigation act on visible database results even when Folders is the covered underlying view.
 - Search: does not interrupt playback.
 
 ## Selection

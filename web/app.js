@@ -1,5 +1,6 @@
 (() => {
 const app = window.SPCBoyApp;
+const sidebarViewState = window.SPCBoySidebarViewState;
 const { state, refs } = app;
 
 let resizingSidebar = false;
@@ -618,7 +619,7 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     app.ui.activateFocusedItem(event.target).then((handled) => {
       if (handled) return;
-      if (state.sidebarMode === "database") {
+      if (sidebarViewState.resolve(state.sidebarMode, state.sidebarQuery).contentMode === "database") {
         app.ui.activateDatabaseSelection();
         return;
       }
