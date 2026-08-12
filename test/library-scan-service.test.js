@@ -92,7 +92,7 @@ test("scan service coordinates discovery, inspection, progress, and one database
   await fs.writeFile(trackPath, "fixture", "utf8");
 
   const roots = [{ id: 7, path: rootPath, last_scan_track_count: 0 }];
-  const calls = { inspected: [], probed: [], progress: [], replaced: null, began: false, committed: false };
+  const calls = { inspected: [], probed: [], progress: [], discoveredSources: [], replaced: null, began: false, committed: false };
   const database = {
     async ensureRoot() { return roots[0]; },
     async markScanStarted() {},
@@ -100,8 +100,8 @@ test("scan service coordinates discovery, inspection, progress, and one database
     async commitAtomicScan() { calls.committed = true; },
     async rollbackAtomicScan() {},
     async indexedTrackRecords() { return [{ path: path.join(rootPath, "previously-indexed.nsf"), archivePath: null, archiveEntry: null }]; },
-    async restoreSources() {},
-    async markUndiscoveredSourcesDead() {},
+    async restoreSources() { throw new Error("atomic scans must not write the discovered source set twice"); },
+    async markUndiscoveredSourcesDead(rootId, paths) { calls.discoveredSources.push({ rootId, paths }); },
     async replaceTracks(rootId, records, details) {
       calls.replaced = { rootId, records, details };
       roots[0].last_scan_track_count = records.length;
@@ -159,6 +159,7 @@ test("scan service coordinates discovery, inspection, progress, and one database
   assert.equal(calls.replaced.records[0].scanCompleted, true);
   assert.equal(calls.began, true);
   assert.equal(calls.committed, true);
+  assert.deepEqual(calls.discoveredSources, [{ rootId: 7, paths: [trackPath] }]);
   assert.equal(calls.replaced.details.fileCount, 1);
   assert.equal(result.trackCount, 1);
   assert.equal(result.warningCount, 0);

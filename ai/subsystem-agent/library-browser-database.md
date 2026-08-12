@@ -19,7 +19,7 @@
 - A root scan writes a self-contained generation while retaining records marked in `dead_sources`.
 - WAL readers use query-only worker lanes and keep the active generation visible while bounded staged batches commit. Tracks, FTS rows, outcomes, and discovered sources become visible only when a short publish savepoint switches the root generation and game projection; failure deletes the staged generation.
 - Game rows are root-scoped by `root_id + browser_game + browser_system`. Same-title/same-console records in different library roots remain separate, and database activation binds that exact tuple.
-- Existing committed records remain available if a scan fails before its transaction commits.
+- Existing active-generation records remain available if a scan fails before publication, even though bounded batches for the staged generation may already be committed.
 - A single archive listing failure is retained as a root scan warning without discarding successfully indexed files from the same root.
 - Database queries are limited to enabled roots.
 
@@ -38,6 +38,7 @@
 - Queue-time metadata updates only matching existing `tracks` rows; it upserts `track_metadata` without changing `scan_completed`, scan signatures, or retry state.
 - Database mode defaults to expandable console groups; the Console View setting controls whether those parent disclosure rows are shown or the game list is flattened.
 - Root removal explicitly deletes that root's indexed tracks before deleting the root record.
+- Publication completes before obsolete-generation cleanup begins. Cleanup failure is logged and leaves the newly published generation active; it must not be reported as though publication rolled back.
 - Add, remove, move, single-enable, and batch-enable root changes return one refreshed root list and broadcast it to both windows. Batch enablement is one SQL update, not one roots reload per checkbox.
 - Purging retained missing sources deletes their `track_search` rows before deleting tracks; FTS must never retain orphan row IDs.
 - `track_search` is the persistent FTS index for filename, source/archive path, archive entry, bucket names, and scanned tags. Folder search scopes FTS matches to the active Folder root; Database search scopes them to enabled roots and returns whole game buckets. The renderer immediately filters its loaded game buckets, then replaces that optimistic subset with the FTS-complete result. Never reintroduce a concatenated `LIKE '%term%'` table scan on each keystroke.

@@ -225,13 +225,10 @@ async function scanLibraryRoot({
         scanWarnings.push(formatScanOutcome(outcome));
       }
     });
-    await database.restoreSources(physicalSources.map((source) => ({
-      rootId: root.id,
-      path: source.archivePath || source.path
-    })));
+    const discoveredSourcePaths = physicalSources.map((source) => source.archivePath || source.path);
     await database.markUndiscoveredSourcesDead(
       root.id,
-      physicalSources.map((source) => source.archivePath || source.path)
+      discoveredSourcePaths
     );
 
     const physicalSourcesNeedingExpansion = [];

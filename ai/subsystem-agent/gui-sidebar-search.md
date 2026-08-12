@@ -24,7 +24,8 @@
 
 ## Files
 
-- [web/app.js](/Users/john/Downloads/Code/SPCBoy/web/app.js)
 - [web/app-ui.js](/Users/john/Downloads/Code/SPCBoy/web/app-ui.js)
-- [web/app-core.js](/Users/john/Downloads/Code/SPCBoy/web/app-core.js)
+- [main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
+- [preload.js](/Users/john/Downloads/Code/SPCBoy/electron/preload.js)
+- [library-database.js](/Users/john/Downloads/Code/SPCBoy/electron/library-database.js)
 - [latest-request-coalescer.js](/Users/john/Downloads/Code/SPCBoy/electron/latest-request-coalescer.js)

@@ -39,7 +39,7 @@
 - Database: ZIP-, 7z-, RSN-, and TZST-contained supported audio files appear as playable indexed tracks, including expanded internal songs from multi-track NSF and GBS files.
 - Database mode: search queries indexed game buckets without rescanning the library; a game leaf previews its indexed tracks on selection, while console headings are expandable/collapsible and activate only with Enter or double-click. Console headings use a recognized collection tag such as `[PS1]`, then the collection's console folder when no tag exists. Same-title games from separate library paths remain distinct and load only that root's indexed tracks.
 - Database mode: single-click preview is delayed just long enough to distinguish a double-click, so activation issues one track query instead of previewing and immediately loading the same game again. Database read/search/activation failures remain visible below the existing game list.
-- During a scan, the Database sidebar continues showing the last completed library. A cancelled or failed scan rolls back every track, search-index, group-count, and root-statistics change from that attempt.
+- During a scan, the Database sidebar continues showing the last completed library. A cancelled or failed scan discards the staged tracks, search rows, outcomes, and discovered-source set; scan status still records that the attempt started and, for a failure, its error.
 - Console View: database games are grouped under expandable console headings by default, while the option can flatten the list without changing search or activation behavior.
 - Playback Options: App Volume controls SPCBoy output only; Equalizer exposes ten shared 31 Hz–16 kHz parametric bands at ±12 dB and applies to renderer and native playback paths.
 
