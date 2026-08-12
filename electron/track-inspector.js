@@ -47,7 +47,7 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
   const metadataCache = new BoundedMetadataCache(cacheMaxEntries);
   const backendScanLimiters = new Map();
 
-  async function inspectTrack(trackPath, sourceName = trackPath) {
+  async function inspectTrack(trackPath, sourceName = trackPath, { signal = null } = {}) {
     const cacheKey = `${trackPath}\u0000${sourceName}`;
     const cacheFingerprint = metadataFingerprint(await fs.stat(trackPath).catch(() => null));
     const cached = metadataCache.get(cacheKey, cacheFingerprint);
@@ -61,21 +61,22 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
     const spcMetadata = extension === ".spc" ? await readSpcMetadata(trackPath) : null;
     const psfMetadata = [".psf", ".minipsf", ".psf2", ".minipsf2"].includes(extension) ? await readPsfMetadata(trackPath) : null;
     const vgmFastMetadata = backend?.id === "libvgm" ? await readVgmMetadata(trackPath) : null;
-    const gmeMetadata = backend?.id === "libgme" && !spcMetadata ? await nativeAudio.inspectGme(trackPath).catch(() => null) : null;
-    const vgmMetadata = backend?.id === "libvgm" && !vgmFastMetadata ? await nativeAudio.inspectLibVgm(trackPath).catch(() => null) : null;
-    const lazyUsfMetadata = backend?.id === "lazyusf" ? await nativeAudio.inspectLazyUsf(trackPath).catch(() => null) : null;
-    const highlyCompleteMetadata = backend?.id === "highlycomplete" ? await nativeAudio.inspectHighlyComplete(trackPath).catch(() => null) : null;
-    const openMptMetadata = backend?.id === "openmpt" ? await nativeAudio.inspectOpenMpt(trackPath).catch(() => null) : null;
-    const standardAudioMetadata = backend?.id === "standard-audio" && !specialAudio ? await nativeAudio.inspectFfprobe(trackPath).catch(() => null) : null;
-    const twoSFMetadata = backend?.id === "twosf" ? await nativeAudio.inspectTwoSF(trackPath).catch(() => null) : null;
+    const inspectionOptions = { signal };
+    const gmeMetadata = backend?.id === "libgme" && !spcMetadata ? await nativeAudio.inspectGme(trackPath, inspectionOptions) : null;
+    const vgmMetadata = backend?.id === "libvgm" && !vgmFastMetadata ? await nativeAudio.inspectLibVgm(trackPath, inspectionOptions) : null;
+    const lazyUsfMetadata = backend?.id === "lazyusf" ? await nativeAudio.inspectLazyUsf(trackPath, inspectionOptions) : null;
+    const highlyCompleteMetadata = backend?.id === "highlycomplete" ? await nativeAudio.inspectHighlyComplete(trackPath, inspectionOptions) : null;
+    const openMptMetadata = backend?.id === "openmpt" ? await nativeAudio.inspectOpenMpt(trackPath, inspectionOptions) : null;
+    const standardAudioMetadata = backend?.id === "standard-audio" && !specialAudio ? await nativeAudio.inspectFfprobe(trackPath, inspectionOptions) : null;
+    const twoSFMetadata = backend?.id === "twosf" ? await nativeAudio.inspectTwoSF(trackPath, inspectionOptions) : null;
     const vgmstreamMetadata = specialAudio?.kind === "nds-swav"
-      ? await nativeAudio.inspectNdsSwav(trackPath).catch(() => null)
-      : backend?.id === "vgmstream" ? await nativeAudio.inspectVgmstream(trackPath).catch(() => null) : null;
+      ? await nativeAudio.inspectNdsSwav(trackPath, inspectionOptions)
+      : backend?.id === "vgmstream" ? await nativeAudio.inspectVgmstream(trackPath, inspectionOptions) : null;
     // PSF/PSF2 carries the scan metadata in its [TAG] footer. CocoaSpice uses
     // that shortcut before starting the Play! core; doing both here launched a
     // full PSX inspector for every otherwise-valid member in a JoshW archive.
     const playPsfMetadata = backend?.id === "playpsf" && !psfMetadata
-      ? await nativeAudio.inspectPlayPsf(trackPath).catch(() => null)
+      ? await nativeAudio.inspectPlayPsf(trackPath, inspectionOptions)
       : null;
     const rawPcmMetadata = specialAudio?.kind === "nds-raw-pcm22"
       ? { system: specialAudio.system, game: "", song: basename, author: "", play_length: Math.round(specialAudio.frameCount * 1000 / specialAudio.sampleRate) }
@@ -110,23 +111,23 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
     return inspection;
   }
 
-  async function inspectTrackVariants(trackPath, sourceName = trackPath) {
+  async function inspectTrackVariants(trackPath, sourceName = trackPath, options = {}) {
     const backend = backendForPath(trackPath);
     if (path.extname(trackPath).toLowerCase() === ".spc") {
-      const inspection = await inspectTrack(trackPath, sourceName);
+      const inspection = await inspectTrack(trackPath, sourceName, options);
       return [{ trackIndex: 0, trackCount: 1, inspection }];
     }
     if (backend?.id !== "libgme") {
-      if (backend?.id === "vgmstream") return trackVariantsFromNativeResult(trackPath, await nativeAudio.inspectAll(trackPath));
-      const inspection = await inspectTrack(trackPath, sourceName);
+      if (backend?.id === "vgmstream") return trackVariantsFromNativeResult(trackPath, await nativeAudio.inspectAll(trackPath, options));
+      const inspection = await inspectTrack(trackPath, sourceName, options);
       return [{ trackIndex: 0, trackCount: 1, inspection }];
     }
-    return trackVariantsFromNativeResult(trackPath, await nativeAudio.inspectAll(trackPath));
+    return trackVariantsFromNativeResult(trackPath, await nativeAudio.inspectAll(trackPath, options));
   }
 
-  async function inspectTrackVariantsForScan(trackPath, sourceName = trackPath) {
+  async function inspectTrackVariantsForScan(trackPath, sourceName = trackPath, { signal = null } = {}) {
     const route = routeForPath(sourceName) || routeForPath(trackPath);
-    if (!route) return inspectTrackVariants(trackPath, sourceName);
+    if (!route) return inspectTrackVariants(trackPath, sourceName, { signal });
     if (path.extname(sourceName).toLowerCase() === ".ss2") {
       const handle = await fs.open(trackPath, "r");
       try {
@@ -147,9 +148,10 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
       backendScanLimiters.set(route.backendId, limiter);
     }
     return limiter(() => withScanTimeout(
-      () => inspectTrackVariants(trackPath, sourceName),
+      (deadlineSignal) => inspectTrackVariants(trackPath, sourceName, { signal: deadlineSignal }),
       route.scanTimeoutSeconds * 1000,
-      `${route.backendId} metadata inspection for ${sourceName}`
+      `${route.backendId} metadata inspection for ${sourceName}`,
+      { signal }
     ));
   }
 

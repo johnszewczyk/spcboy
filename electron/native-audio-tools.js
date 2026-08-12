@@ -47,27 +47,52 @@ function createNativeAudioTools({
     nativeHelperClient = null;
   }
 
-  async function runCommand(program, args, label, { encoding = null } = {}) {
+  async function runCommand(program, args, label, { encoding = null, signal = null } = {}) {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason instanceof Error ? signal.reason : new Error(`${label} cancelled`));
+        return;
+      }
       const child = spawnProcess(program, args, { stdio: ["ignore", "pipe", "pipe"] });
       const stdoutChunks = [];
       const stderrChunks = [];
       let settled = false;
+      let abortError = null;
+      let forceKillTimer = null;
+      const cleanup = () => {
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        signal?.removeEventListener("abort", abort);
+      };
       const fail = (error) => {
         if (settled) return;
         settled = true;
+        cleanup();
         reject(error);
       };
       const finish = (value) => {
         if (settled) return;
         settled = true;
+        cleanup();
         resolve(value);
+      };
+      const abort = () => {
+        if (settled || abortError) return;
+        abortError = signal?.reason instanceof Error ? signal.reason : new Error(`${label} cancelled`);
+        if (!child.killed) child.kill("SIGTERM");
+        forceKillTimer = setTimeout(() => {
+          if (!settled) child.kill("SIGKILL");
+        }, 1_000);
+        forceKillTimer.unref?.();
       };
 
       child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
       child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
       child.on("error", fail);
       child.on("close", (code) => {
+        if (abortError) {
+          fail(abortError);
+          return;
+        }
         if (code !== 0) {
           fail(new Error(Buffer.concat(stderrChunks).toString("utf8").trim() || `${label} exited with code ${code}`));
           return;
@@ -75,6 +100,7 @@ function createNativeAudioTools({
         const stdout = Buffer.concat(stdoutChunks);
         finish(encoding ? stdout.toString(encoding) : stdout);
       });
+      signal?.addEventListener("abort", abort, { once: true });
     });
   }
 
@@ -129,12 +155,12 @@ function createNativeAudioTools({
     }
   }
 
-  async function inspectWithGme(trackPath) {
-    return JSON.parse(await runLibGmeTool(["inspect", trackPath], { encoding: "utf8" }));
+  async function inspectWithGme(trackPath, { signal = null } = {}) {
+    return JSON.parse(await runLibGmeTool(["inspect", trackPath], { encoding: "utf8", signal }));
   }
 
-  async function inspectWithLibVgm(trackPath) {
-    return JSON.parse(await runLibVgmTool(["inspect", trackPath], { encoding: "utf8" }));
+  async function inspectWithLibVgm(trackPath, { signal = null } = {}) {
+    return JSON.parse(await runLibVgmTool(["inspect", trackPath], { encoding: "utf8", signal }));
   }
 
   function parseOpenMptDuration(value) {
@@ -149,8 +175,8 @@ function createNativeAudioTools({
     return expression.exec(text)?.[1]?.trim() || "";
   }
 
-  async function inspectWithOpenMpt(trackPath) {
-    const stdout = await runCommand(OPENMPT_BINARY, ["--info", "--", trackPath], "openmpt123", { encoding: "utf8" });
+  async function inspectWithOpenMpt(trackPath, { signal = null } = {}) {
+    const stdout = await runCommand(OPENMPT_BINARY, ["--info", "--", trackPath], "openmpt123", { encoding: "utf8", signal });
     return {
       system: "Module",
       game: "",
@@ -165,13 +191,13 @@ function createNativeAudioTools({
     return key ? String(tags[key] || "").trim() : "";
   }
 
-  async function inspectWithFfprobe(trackPath) {
+  async function inspectWithFfprobe(trackPath, { signal = null } = {}) {
     const stdout = await runCommand(FFPROBE_BINARY, [
       "-v", "error",
       "-show_entries", "format=duration:format_tags=title,artist,album",
       "-of", "json",
       trackPath
-    ], "ffprobe", { encoding: "utf8" });
+    ], "ffprobe", { encoding: "utf8", signal });
     const format = JSON.parse(stdout).format || {};
     const tags = format.tags || {};
     const duration = Number(format.duration);
@@ -184,8 +210,8 @@ function createNativeAudioTools({
     };
   }
 
-  async function inspectNdsSwav(trackPath) {
-    return withNdsSwavAlias(trackPath, inspectWithGme);
+  async function inspectNdsSwav(trackPath, options = {}) {
+    return withNdsSwavAlias(trackPath, (aliasPath) => inspectWithGme(aliasPath, options));
   }
 
   async function decodeGme(trackPath, trackIndex, startMs, playMs, fadeMs) {
@@ -246,10 +272,10 @@ function createNativeAudioTools({
 
   return {
     terminate,
-    inspectAll: async (trackPath) => JSON.parse(await runLibGmeTool(["inspect-all", trackPath], { encoding: "utf8" })),
+    inspectAll: async (trackPath, { signal = null } = {}) => JSON.parse(await runLibGmeTool(["inspect-all", trackPath], { encoding: "utf8", signal })),
     inspectGme: inspectWithGme,
     inspectLibVgm: inspectWithLibVgm,
-    inspectLazyUsf: async (trackPath) => JSON.parse(await runLazyUsfTool(["inspect", trackPath], { encoding: "utf8" })),
+    inspectLazyUsf: async (trackPath, { signal = null } = {}) => JSON.parse(await runLazyUsfTool(["inspect", trackPath], { encoding: "utf8", signal })),
     inspectHighlyComplete: inspectWithGme,
     inspectOpenMpt: inspectWithOpenMpt,
     inspectFfprobe: inspectWithFfprobe,

@@ -31,6 +31,21 @@ test("scan scratch budget refuses low-space extraction and tracks released roots
     getAvailableBytes: async () => 1
   });
   await assert.rejects(lowDiskBudget.ensureArchiveCapacity(__filename), /only 1 bytes free/);
+
+  let availableChecks = 0;
+  const shrinkingDiskBudget = await createScanScratchBudget({
+    budgetBytes: 8 * 1024 * 1024 * 1024,
+    getSummary: async () => ({ activeRootCount: 0, activeBytes: 0 }),
+    getAvailableBytes: async () => (++availableChecks === 1
+      ? 10 * 1024 * 1024 * 1024
+      : 2 * 1024 * 1024 * 1024 + 8 * 1024 * 1024)
+  });
+  await shrinkingDiskBudget.ensureArchiveCapacity(__filename);
+  await assert.rejects(
+    shrinkingDiskBudget.reserveBytes("/scratch/shrinking", 16 * 1024 * 1024),
+    /free-space reserve/
+  );
+  assert.equal(shrinkingDiskBudget.snapshot().activeBytes, 0);
 });
 
 test("releases each completed archive session before the next archive consumes the scratch budget", async (t) => {

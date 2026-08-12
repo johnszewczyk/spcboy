@@ -310,6 +310,8 @@ test("discovers and materializes module and standard-audio ZIP members", async (
 
 test("lists and materializes TZST and TAR.ZST members", async (t) => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-tzst-fixture-"));
+  const previousScratchRoot = process.env.SPCBOY_SCAN_SCRATCH_ROOT;
+  process.env.SPCBOY_SCAN_SCRATCH_ROOT = path.join(fixtureRoot, "scan-scratch");
   try {
     const members = ["01 module.xm", "02 recording.flac"];
     for (const member of members) {
@@ -327,14 +329,32 @@ test("lists and materializes TZST and TAR.ZST members", async (t) => {
 
     assert.equal(archiveType(path.join(fixtureRoot, "fixture.tzst")), "tzst");
     assert.equal(archiveType(archivePath), "tzst");
-    const playableEntries = await archivePlayableEntries(archivePath, (extension) => new Set([".xm", ".flac"]).has(extension));
+    let reservedBytes = 0;
+    let capacityChecks = 0;
+    let releaseChecks = 0;
+    const playableEntries = await archivePlayableEntries(
+      archivePath,
+      (extension) => new Set([".xm", ".flac"]).has(extension),
+      {
+        scratchOwner: "scan",
+        async ensureCapacity() { capacityChecks += 1; },
+        reserveScratchBytes(_rootPath, byteCount) { reservedBytes += byteCount; },
+        async onScratchReleased() { releaseChecks += 1; }
+      }
+    );
     assert.deepEqual(playableEntries, members);
+    assert.equal(capacityChecks, 1);
+    assert.ok(reservedBytes > 0);
+    assert.equal(releaseChecks, 1);
+    assert.deepEqual(await scanScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
     const materializedPaths = await Promise.all(playableEntries.map((entry) => materializeZipEntry(archivePath, entry)));
     assert.equal(new Set(materializedPaths).size, members.length);
     for (let index = 0; index < members.length; index += 1) {
       assert.equal(await fs.readFile(materializedPaths[index], "utf8"), members[index]);
     }
   } finally {
+    if (previousScratchRoot === undefined) delete process.env.SPCBOY_SCAN_SCRATCH_ROOT;
+    else process.env.SPCBOY_SCAN_SCRATCH_ROOT = previousScratchRoot;
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
 });

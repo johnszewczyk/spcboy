@@ -45,3 +45,22 @@ test("track inspector caches lightweight metadata and expands native multi-track
   assert.deepEqual(variants.map((variant) => variant.inspection.metadata.song), ["One", "Two"]);
   assert.deepEqual(variants.map((variant) => variant.trackCount), [2, 2]);
 });
+
+test("track inspector reports required decoder failures instead of indexing generic metadata", async (t) => {
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-track-inspector-failure-"));
+  t.after(() => fs.rm(rootPath, { recursive: true, force: true }));
+  const trackPath = path.join(rootPath, "broken.xm");
+  await fs.writeFile(trackPath, "not a module", "utf8");
+  const inspector = createTrackInspector({
+    nativeAudio: {
+      async inspectOpenMpt() {
+        throw new Error("openmpt123 rejected the module");
+      }
+    }
+  });
+
+  await assert.rejects(
+    inspector.inspectTrackVariantsForScan(trackPath),
+    /openmpt123 rejected the module/
+  );
+});

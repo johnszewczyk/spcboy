@@ -26,16 +26,29 @@ function createAsyncLimiter(limit) {
   };
 }
 
-async function withScanTimeout(operation, milliseconds, description) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Timed out after ${milliseconds / 1000} seconds: ${description}`)), milliseconds);
-    timer.unref?.();
-  });
+function cancellationError(signal, fallback) {
+  return signal?.reason instanceof Error ? signal.reason : fallback;
+}
+
+async function withScanTimeout(operation, milliseconds, description, { signal = null } = {}) {
+  const controller = new AbortController();
+  const timeoutError = new Error(`Timed out after ${milliseconds / 1000} seconds: ${description}`);
+  const abortFromCaller = () => controller.abort(cancellationError(signal, new Error("Library operation cancelled")));
+  if (signal?.aborted) abortFromCaller();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timer = setTimeout(() => controller.abort(timeoutError), milliseconds);
+  timer.unref?.();
   try {
-    return await Promise.race([operation(), timeout]);
+    if (controller.signal.aborted) throw cancellationError(controller.signal, new Error("Library operation cancelled"));
+    const result = await operation(controller.signal);
+    if (controller.signal.aborted) throw cancellationError(controller.signal, timeoutError);
+    return result;
+  } catch (error) {
+    if (controller.signal.aborted) throw cancellationError(controller.signal, error);
+    throw error;
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 

@@ -11,6 +11,7 @@ const DEFAULT_SCAN_VERSION = 2;
 const DEFAULT_SCAN_CONCURRENCY = 8;
 const DEFAULT_SCAN_SCRATCH_BUDGET_BYTES = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_SCRATCH_BYTES = 2 * 1024 * 1024 * 1024;
+const SCRATCH_FREE_SPACE_RECHECK_BYTES = 16 * 1024 * 1024;
 
 function scratchBudgetError(message) {
   const error = new Error(`Scan scratch space: ${message}`);
@@ -25,6 +26,10 @@ async function createScanScratchBudget({ budgetBytes = DEFAULT_SCAN_SCRATCH_BUDG
   let peakBytes = activeBytes;
   const ownedRoots = new Set();
   const normalizedBudget = Math.max(1, Number(budgetBytes) || DEFAULT_SCAN_SCRATCH_BUDGET_BYTES);
+  let predictedAvailableBytes = null;
+  let bytesSinceFreeSpaceCheck = 0;
+  let lastFreeSpaceCheckAt = 0;
+  let reserveTail = Promise.resolve();
   return {
     async ensureArchiveCapacity(archivePath) {
       const [stat, availableBytes] = await Promise.all([fs.stat(archivePath), getAvailableBytes()]);
@@ -36,6 +41,11 @@ async function createScanScratchBudget({ budgetBytes = DEFAULT_SCAN_SCRATCH_BUDG
         throw scratchBudgetError(`only ${availableBytes} bytes free; ${MIN_FREE_SCRATCH_BYTES + estimate} bytes are required before extracting ${archivePath}`);
       }
       if (activeBytes >= normalizedBudget) throw scratchBudgetError(`active scratch use has reached the ${normalizedBudget}-byte budget`);
+      predictedAvailableBytes = predictedAvailableBytes === null
+        ? availableBytes - SCRATCH_FREE_SPACE_RECHECK_BYTES
+        : Math.min(predictedAvailableBytes, availableBytes - SCRATCH_FREE_SPACE_RECHECK_BYTES);
+      bytesSinceFreeSpaceCheck = 0;
+      lastFreeSpaceCheckAt = Date.now();
     },
     reserveBytes(_rootPath, byteCount) {
       const bytes = Math.max(0, Number(byteCount) || 0);
@@ -44,12 +54,38 @@ async function createScanScratchBudget({ budgetBytes = DEFAULT_SCAN_SCRATCH_BUDG
       activeRootCount = Math.max(activeRootCount, ownedRoots.size);
       activeBytes += bytes;
       peakBytes = Math.max(peakBytes, activeBytes);
+      const check = reserveTail.then(async () => {
+        const shouldRefreshFreeSpace = predictedAvailableBytes === null
+          || bytesSinceFreeSpaceCheck + bytes >= SCRATCH_FREE_SPACE_RECHECK_BYTES
+          || Date.now() - lastFreeSpaceCheckAt >= 1_000;
+        if (shouldRefreshFreeSpace) {
+          const availableBytes = await getAvailableBytes();
+          // Allow for output already admitted to stream buffers but not yet
+          // reflected by statfs when this measurement completes.
+          predictedAvailableBytes = availableBytes - SCRATCH_FREE_SPACE_RECHECK_BYTES;
+          bytesSinceFreeSpaceCheck = 0;
+          lastFreeSpaceCheckAt = Date.now();
+        }
+        if (predictedAvailableBytes - bytes < MIN_FREE_SCRATCH_BYTES) {
+          throw scratchBudgetError(`streamed extraction would consume the ${MIN_FREE_SCRATCH_BYTES}-byte free-space reserve`);
+        }
+        predictedAvailableBytes -= bytes;
+        bytesSinceFreeSpaceCheck += bytes;
+      });
+      reserveTail = check.catch(() => {});
+      return check.catch((error) => {
+        activeBytes = Math.max(0, activeBytes - bytes);
+        throw error;
+      });
     },
     async refresh() {
+      await reserveTail;
       const summary = await getSummary();
       activeBytes = Number(summary.activeBytes) || 0;
       activeRootCount = Number(summary.activeRootCount) || 0;
       peakBytes = Math.max(peakBytes, activeBytes);
+      predictedAvailableBytes = null;
+      bytesSinceFreeSpaceCheck = 0;
       return summary;
     },
     snapshot() {
@@ -264,6 +300,12 @@ async function scanLibraryRoot({
       job,
       deepScan,
       concurrency: ARCHIVE_LIST_CONCURRENCY,
+      archiveOptions: {
+        scratchOwner: "scan",
+        reserveScratchBytes: scratchBudget.reserveBytes,
+        ensureCapacity: scratchBudget.ensureArchiveCapacity,
+        onScratchReleased: scratchBudget.refresh
+      },
       onOutcome: (outcome) => {
         scanOutcomes.push(outcome);
         if (outcome.state === "failed" || outcome.state === "cancelled" || outcome.state === "incomplete") scanWarnings.push(formatScanOutcome(outcome));
@@ -284,9 +326,13 @@ async function scanLibraryRoot({
     const sourceStats = new Map();
     const sharedScanMaterializations = new Map();
     const archivePendingSources = new Map();
+    const archiveEntriesByPath = new Map();
     for (const source of trackPaths) {
       if (source.archivePath && source.archiveEntry) {
         archivePendingSources.set(source.archivePath, (archivePendingSources.get(source.archivePath) || 0) + 1);
+        const entries = archiveEntriesByPath.get(source.archivePath) || [];
+        entries.push(source.archiveEntry);
+        archiveEntriesByPath.set(source.archivePath, entries);
       }
     }
     let lastProgressAt = 0;
@@ -303,10 +349,11 @@ async function scanLibraryRoot({
       let sessionPromise = sharedScanMaterializations.get(archivePath);
       if (!sessionPromise) {
         await scratchBudget.ensureArchiveCapacity(archivePath);
-        const entryPaths = trackPaths
-          .filter((candidate) => candidate.archivePath === archivePath && candidate.archiveEntry)
-          .map((candidate) => candidate.archiveEntry);
-        sessionPromise = materializeArchiveEntriesForScan(archivePath, entryPaths, { reserveBytes: scratchBudget.reserveBytes });
+        const entryPaths = archiveEntriesByPath.get(archivePath) || [];
+        sessionPromise = materializeArchiveEntriesForScan(archivePath, entryPaths, {
+          reserveBytes: scratchBudget.reserveBytes,
+          signal: job?.signal || null
+        });
         sharedScanMaterializations.set(archivePath, sessionPromise);
       }
       const session = await sessionPromise;
@@ -373,6 +420,7 @@ async function scanLibraryRoot({
         );
         if (reusableRecords) {
           recordsBySource[index] = reusableRecords;
+          await releaseArchiveMaterialization(source);
           publishScanProgress(source, index);
           continue;
         }
@@ -397,7 +445,7 @@ async function scanLibraryRoot({
         }
         if (!failureOutcome) {
           try {
-            variants = await inspectTrackVariants(playablePath, source.archiveEntry || source.path);
+            variants = await inspectTrackVariants(playablePath, source.archiveEntry || source.path, { signal: job?.signal || null });
             throwIfCancelled(job);
           } catch (error) {
             failureOutcome = createScanOutcome({

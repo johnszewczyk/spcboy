@@ -16,8 +16,24 @@ test("limits concurrent scanner operations", async () => {
 });
 
 test("times out bounded scanner work", async () => {
+  let aborted = false;
   await assert.rejects(
-    withScanTimeout(() => new Promise(() => {}), 10, "fixture inspection"),
+    withScanTimeout((signal) => new Promise((_, reject) => {
+      signal.addEventListener("abort", () => {
+        aborted = true;
+        reject(signal.reason);
+      }, { once: true });
+    }), 10, "fixture inspection"),
     /Timed out after 0.01 seconds: fixture inspection/
   );
+  assert.equal(aborted, true);
+});
+
+test("propagates caller cancellation into active scanner work", async () => {
+  const controller = new AbortController();
+  const operation = withScanTimeout((signal) => new Promise((_, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  }), 10_000, "fixture inspection", { signal: controller.signal });
+  controller.abort(new Error("Library operation cancelled"));
+  await assert.rejects(operation, /Library operation cancelled/);
 });

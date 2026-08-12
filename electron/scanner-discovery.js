@@ -13,6 +13,7 @@ async function discoverPhysicalSources(rootPath, {
 } = {}) {
   const sources = [];
   const queue = [path.resolve(rootPath)];
+  let queueHead = 0;
   const waiters = [];
   let active = 0;
   let visitedFolders = 0;
@@ -35,7 +36,7 @@ async function discoverPhysicalSources(rootPath, {
   async function nextFolder() {
     while (true) {
       if (job?.cancelled) throw new Error("Library operation cancelled");
-      const folderPath = queue.shift();
+      const folderPath = queueHead < queue.length ? queue[queueHead++] : null;
       if (folderPath) {
         active += 1;
         return folderPath;
@@ -82,7 +83,7 @@ async function discoverPhysicalSources(rootPath, {
         publishProgress(folderPath, true);
       } finally {
         active -= 1;
-        if (active === 0 && queue.length === 0) {
+        if (active === 0 && queueHead >= queue.length) {
           while (waiters.length) waiters.shift()();
         } else {
           wake();

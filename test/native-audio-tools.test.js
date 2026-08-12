@@ -8,6 +8,14 @@ class FakeChild extends EventEmitter {
     super();
     this.stdout = new EventEmitter();
     this.stderr = new EventEmitter();
+    this.killed = false;
+    this.killSignals = [];
+  }
+
+  kill(signal = "SIGTERM") {
+    this.killed = true;
+    this.killSignals.push(signal);
+    return true;
   }
 }
 
@@ -107,4 +115,16 @@ test("native audio tools retain the native-session capability guard", async () =
   });
 
   await assert.rejects(tools.loadNativePlayback("/music/track.xm", 0, 0, 0, 0), /OpenMPT does not use the native playback session/);
+});
+
+test("native audio tools terminate an aborted one-shot inspector before settling", async () => {
+  const child = new FakeChild();
+  const controller = new AbortController();
+  const tools = createTools({ spawnProcess: () => child });
+  const inspection = tools.inspectFfprobe("/music/hung.flac", { signal: controller.signal });
+
+  controller.abort(new Error("Library operation cancelled"));
+  assert.deepEqual(child.killSignals, ["SIGTERM"]);
+  child.emit("close", null, "SIGTERM");
+  await assert.rejects(inspection, /Library operation cancelled/);
 });

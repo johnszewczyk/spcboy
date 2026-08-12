@@ -99,9 +99,16 @@ const nativeAudio = createNativeAudioTools({
 
 function beginLibraryJob(operation) {
   if (activeLibraryJob) throw new Error(`${activeLibraryJob.operation} is already running`);
-  const job = { id: nextLibraryJobId++, operation, cancelled: false };
+  const abortController = new AbortController();
+  const job = { id: nextLibraryJobId++, operation, cancelled: false, signal: abortController.signal, abortController };
   activeLibraryJob = job;
   return job;
+}
+
+function cancelLibraryJob(job) {
+  if (!job || job.cancelled) return;
+  job.cancelled = true;
+  job.abortController?.abort(new Error("Library operation cancelled"));
 }
 
 function throwIfLibraryJobCancelled(job) {
@@ -1240,7 +1247,7 @@ ipcMain.handle("library:archive-cache-clear", async () => {
 ipcMain.handle("library:archive-cache-configure", async (_event, settings) => configureArchiveCache(settings));
 ipcMain.handle("library:database-cancel-operation", async () => {
   if (!activeLibraryJob) return false;
-  activeLibraryJob.cancelled = true;
+  cancelLibraryJob(activeLibraryJob);
   return true;
 });
 ipcMain.handle("app:open-options", async () => openOptionsWindow());
@@ -1478,7 +1485,7 @@ app.on("open-file", (event, targetPath) => {
 app.on("before-quit", (event) => {
   if (activeLibraryJob && !quitAfterLibraryCleanup) {
     event.preventDefault();
-    activeLibraryJob.cancelled = true;
+    cancelLibraryJob(activeLibraryJob);
     const job = activeLibraryJob;
     const waitForCleanup = () => {
       if (activeLibraryJob !== job) {

@@ -2,22 +2,10 @@ const { archivePlayableEntriesWithSignature } = require("./archive-resolver");
 const { routeForArchiveEntry } = require("./playback-core");
 const { createScanOutcome } = require("./scanner-model");
 const { normalizeArchiveEntry } = require("./archive-path");
+const { withScanTimeout } = require("./scanner-scheduler");
 
 const ARCHIVE_LIST_TIMEOUT_MS = 30_000;
 const ARCHIVE_LIST_CONCURRENCY = 2;
-
-async function withArchiveListingTimeout(operation, archivePath) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Timed out after ${ARCHIVE_LIST_TIMEOUT_MS / 1000} seconds: listing ${archivePath}`)), ARCHIVE_LIST_TIMEOUT_MS);
-    timer.unref?.();
-  });
-  try {
-    return await Promise.race([operation(), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 async function expandArchiveSources(sources, {
   rootPath = "",
@@ -25,7 +13,8 @@ async function expandArchiveSources(sources, {
   concurrency = ARCHIVE_LIST_CONCURRENCY,
   deepScan = false,
   onOutcome = () => {},
-  onEntries = async () => {}
+  onEntries = async () => {},
+  archiveOptions = {}
 } = {}) {
   const expanded = [];
   let nextIndex = 0;
@@ -42,9 +31,15 @@ async function expandArchiveSources(sources, {
       }
       const startedAt = Date.now();
       try {
-        const listing = await withArchiveListingTimeout(
-          () => archivePlayableEntriesWithSignature(source.archivePath, (extension) => Boolean(routeForArchiveEntry(`member${extension}`))),
-          source.archivePath
+        const listing = await withScanTimeout(
+          (signal) => archivePlayableEntriesWithSignature(
+            source.archivePath,
+            (extension) => Boolean(routeForArchiveEntry(`member${extension}`)),
+            { ...archiveOptions, signal }
+          ),
+          ARCHIVE_LIST_TIMEOUT_MS,
+          `listing ${source.archivePath}`,
+          { signal: job?.signal || null }
         );
         if (!listing.entries.length) {
           onOutcome(createScanOutcome({

@@ -7,7 +7,7 @@
 
 ## Ownership
 
-- `library-scan-service.js` owns one cancellable library job, progress, generation publication, and scratch-budget enforcement.
+- `library-scan-service.js` owns one cancellable library job, progress, generation publication, and scratch-budget enforcement. The main process gives each job an `AbortSignal` so cancellation reaches active archive and decoder subprocesses.
 - `scanner-discovery.js`, `scanner-archive.js`, `scanner-scheduler.js`, and `track-inspector.js` own discovery, archive expansion, bounded inspection scheduling, and metadata routing.
 - `archive-resolver.js` owns physical archive materialization roots and recovery; `archive-cache-gate.js` serializes cache mutation.
 
@@ -27,17 +27,32 @@
 - Track, metadata, FTS, outcome, and discovered-source batches commit throughout the scan without replacing the active generation. Publish updates dead-source state, game buckets, root statistics, and the active-generation pointer in one short savepoint. Failure deletes only the staged generation; startup also removes obsolete abandoned generations.
 - Database scan metrics separate staging, publication, obsolete-generation cleanup, database/WAL/shared-memory size, and WAL growth. The database logs the completed measurement and retains the latest value in process memory. No automatic checkpoint is currently applied; require representative large-library measurements before adding one or moving cleanup off the scan-completion path.
 - Scan progress is throttled and terminal operation state clears the job before late telemetry can revive Cancel. Discovery is visible as indeterminate progress until a stable source total exists; Cancel is rendered only for a live job.
-- Graceful quit cancels the active job and waits for scratch cleanup. Startup recovery removes abandoned inactive scanner roots before a new scan begins.
+- Graceful quit aborts the active job and waits for its subprocesses and scratch cleanup. Scanner deadlines abort the underlying decoder or archive process before releasing that backend's concurrency slot; a timeout must not merely abandon its Promise.
+- Startup recovery removes abandoned inactive scanner roots before a new scan begins.
 - Scan scratch roots use the exact `spcboy-scan-scratch-*` prefix. They are disposable, never a playback cache, and are removed after normal completion, cancellation, or materialization failure. A shared archive extraction is released as soon as its final member has been inspected; a root scan must never retain prior archives until the whole library completes.
-- The scan service enforces its 8 GiB scratch budget and 2 GiB free-space reserve before archive extraction. Streamed materialization refuses output beyond the remaining budget and cleans its active root on failure.
+- The scan service enforces its 8 GiB scratch budget and 2 GiB free-space reserve before and during archive extraction. TAR.ZST listing decompresses into an owned, accounted scratch root rather than the unbounded general temporary directory. Streamed materialization periodically remeasures filesystem space, refuses output beyond either boundary, and cleans its active root on failure.
 - Durable playback cache entries live under `SPCBoy/ArchiveCache`, use a user-selected 512 MiB–4 GiB LRU cap, and protect the active playback lease. Cache-off playback uses disposable `spcboy-playback-scratch-*` roots with their own bounded budget and launch recovery.
 
 ## Failure Boundaries
 
 - Archive listing or one-source inspection failure is a typed warning/outcome; it must not discard successful records from the same root.
 - Headerless `.ss2` data is an unsupported outcome, not a metadata failure. Vgmstream TXT P dependency materialization retains required `.DA` and `.TXTH` siblings.
-- Archive stdout is streamed to owned scratch files; no archive member may accumulate in a Node command buffer.
+- Archive member output is streamed to owned scratch files; no extracted member may accumulate in a Node command buffer. Archive directory listings still use a bounded 128 MiB command buffer and should move to line-oriented streaming if representative collections approach that boundary.
+- A required decoder inspection failure is a metadata-stage failure and leaves the source incomplete for retry. Fast SPC, VGM, PSF-tag, and special-payload metadata routes remain intentional shortcuts and do not imply a full PCM compatibility probe during every ordinary scan.
 - Retained missing-source writes are batched so a disconnected or inaccessible corpus cannot create one unbounded SQLite command.
+
+## Known Constraints
+
+- Ordinary loose-file reuse trusts size and modification time. Archive reuse adds first/last 64 KiB sampling and a member-name signature; preservation-grade full-content hashing remains a separate policy decision.
+- Durable archive-cache `.tmp-*` cleanup and cross-process scratch/database leases are not implemented. The supported launcher stops its prior runtime before replacement; independently starting multiple SPCBoy processes against one user-data directory is unsupported.
+- Renderer scan IPC currently names a path. Main-process root-ID authorization is a defense-in-depth hardening opportunity if the renderer threat boundary changes.
+
+## Near-Term Follow-Up Tranche
+
+1. Stream archive directory listings with explicit entry-count and member-name limits, preserving significant filename whitespace.
+2. Recover and account for stale durable-cache partials, then add cross-process ownership for scratch, cache, and staged database generations.
+3. Change scan IPC to authorize configured root IDs in the main process and make the supported single-instance policy explicit in runtime code.
+4. Choose and measure a stronger reuse-fingerprint policy against a representative large library before changing ordinary-scan hashing costs.
 
 ## Files
 

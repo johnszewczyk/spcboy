@@ -63,11 +63,19 @@ function reusableRecordsForSource(source, stat, rows, scanVersion, backendId = n
 
 function reusableRecordsForArchive(rows, archivePath, stat, sourceSignature, scanVersion, backendIdForEntry = () => null) {
   if (!rows?.length || rows.some((row) => row.archivePath !== archivePath)) return null;
-  const entries = [...new Set(rows.map((row) => normalizeArchiveEntry(row.archiveEntry)).filter(Boolean))].sort();
+  const rowsByEntry = new Map();
+  for (const row of rows) {
+    const entry = normalizeArchiveEntry(row.archiveEntry);
+    if (!entry) continue;
+    const entryRows = rowsByEntry.get(entry) || [];
+    entryRows.push(row);
+    rowsByEntry.set(entry, entryRows);
+  }
+  const entries = [...rowsByEntry.keys()].sort();
   if (!entries.length) return null;
   const reusable = [];
   for (const archiveEntry of entries) {
-    const entryRows = rows.filter((row) => normalizeArchiveEntry(row.archiveEntry) === archiveEntry);
+    const entryRows = rowsByEntry.get(archiveEntry);
     const archiveSignature = entryRows[0]?.archiveSignature || null;
     const records = reusableRecordsForSource({
       path: archivePath,

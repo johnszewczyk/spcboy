@@ -21,7 +21,7 @@
 - The launch script validates `package.json`, honors `SPCBOY_LIBRARY_ROOT` when set, installs Electron dependencies if missing, incrementally builds the native helper graph, then builds `dist/SPCBoy.app` from Electron's macOS bundle.
 - The built application contains the active `electron/`, `web/`, and `native/` runtime trees beneath `Contents/Resources/app`; it is not a loose renderer staging directory.
 - Before replacing the generated app, launch stops only a runtime whose command line names the old loose bundle or the generated SPCBoy app path. It refuses to replace a runtime still in use, preventing partial asset replacement.
-- Launch opens the generated macOS application with `open -n`.
+- Launch starts the generated bundle's executable directly after stopping the prior generated runtime. This avoids stale LaunchServices executable records while ensuring the newly assembled runtime is the process that starts.
 - Local builds use an ad-hoc signature with a stable designated requirement for `com.john.spcboy.development`; rebuilding must not turn SPCBoy into a different Files & Folders client and re-prompt for an already approved library location. A public release should replace that development signature with a stable Developer ID signature.
 - Development launches must create a new runtime rather than hand control to a pre-existing Electron instance. LaunchPad owns process/session management for its own launches.
 - Launch staging copies the complete runtime JavaScript surface from `electron/`; adding a required Electron module must not require a second hand-maintained copy list.

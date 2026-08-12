@@ -50,6 +50,10 @@ const PLAYBACK_SCRATCH_MIN_FREE_BYTES = 1024 * 1024 * 1024;
 const activeScanScratchRoots = new Set();
 const activePlaybackScratchRoots = new Set();
 
+function commandOptions(maxBuffer, signal = null) {
+  return signal ? { maxBuffer, signal } : { maxBuffer };
+}
+
 function scanScratchParentPath() {
   return process.env.SPCBOY_SCAN_SCRATCH_ROOT || os.tmpdir();
 }
@@ -240,8 +244,8 @@ async function fastArchiveSignature(archivePath) {
   }
 }
 
-async function listZipEntries(archivePath) {
-  const result = await execFileAsync(ZIP_BINARY, ["-Z1", archivePath], { maxBuffer: ARCHIVE_LIST_MAX_BUFFER });
+async function listZipEntries(archivePath, { signal = null } = {}) {
+  const result = await execFileAsync(ZIP_BINARY, ["-Z1", archivePath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, signal));
   return result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
 }
 
@@ -261,16 +265,16 @@ function isSupportedArchivePath(archivePath) {
   return archiveType(archivePath) !== null;
 }
 
-async function listSevenZipEntries(archivePath) {
-  const result = await execFileAsync(SEVEN_ZIP_BINARY, ["l", "-slt", "-ba", archivePath], { maxBuffer: ARCHIVE_LIST_MAX_BUFFER });
+async function listSevenZipEntries(archivePath, { signal = null } = {}) {
+  const result = await execFileAsync(SEVEN_ZIP_BINARY, ["l", "-slt", "-ba", archivePath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, signal));
   return result.stdout.split(/\r?\n/)
     .filter((line) => line.startsWith("Path = "))
     .map((line) => line.slice("Path = ".length).trim())
     .filter((entry) => entry && !entry.endsWith("/") && isSafeEntry(entry));
 }
 
-async function listRsnEntries(archivePath) {
-  const result = await execFileAsync(LSAR_BINARY, ["-j", archivePath], { maxBuffer: ARCHIVE_LIST_MAX_BUFFER });
+async function listRsnEntries(archivePath, { signal = null } = {}) {
+  const result = await execFileAsync(LSAR_BINARY, ["-j", archivePath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, signal));
   const listing = JSON.parse(result.stdout);
   return (listing.lsarContents || [])
     .map((entry) => entry.XADFileName)
@@ -287,21 +291,36 @@ async function decompressTarZstandard(archivePath, parentRoot = null, options = 
   return { temporaryRoot, rawTarPath };
 }
 
-async function listTarZstandardEntries(archivePath) {
-  const { temporaryRoot, rawTarPath } = await decompressTarZstandard(archivePath);
+async function listTarZstandardEntries(archivePath, options = {}) {
+  await options.ensureCapacity?.(archivePath);
+  const scannerOwned = options.scratchOwner === "scan";
+  const scratchRoot = scannerOwned ? await createScanScratchRoot() : await createPlaybackScratchRoot();
+  const scratchOptions = {
+    ...options,
+    reserveBytes: scannerOwned
+      ? disposableMaterializationReserve(options.reserveScratchBytes, scratchRoot)
+      : disposableMaterializationReserve()
+  };
   try {
-    const result = await execFileAsync(TAR_BINARY, ["-tf", rawTarPath], { maxBuffer: ARCHIVE_LIST_MAX_BUFFER });
-    return result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
+    const { temporaryRoot, rawTarPath } = await decompressTarZstandard(archivePath, scratchRoot, scratchOptions);
+    try {
+      const result = await execFileAsync(TAR_BINARY, ["-tf", rawTarPath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, options.signal));
+      return result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
+    } finally {
+      await fs.rm(temporaryRoot, { recursive: true, force: true });
+    }
   } finally {
-    await fs.rm(temporaryRoot, { recursive: true, force: true });
+    if (scannerOwned) await removeScanScratchRoot(scratchRoot);
+    else await removePlaybackScratchRoot(scratchRoot);
+    await options.onScratchReleased?.();
   }
 }
 
-async function listArchiveEntries(archivePath) {
-  if (archiveType(archivePath) === "zip") return listZipEntries(archivePath);
-  if (archiveType(archivePath) === "7z") return listSevenZipEntries(archivePath);
-  if (archiveType(archivePath) === "rsn") return listRsnEntries(archivePath);
-  if (archiveType(archivePath) === "tzst") return listTarZstandardEntries(archivePath);
+async function listArchiveEntries(archivePath, options = {}) {
+  if (archiveType(archivePath) === "zip") return listZipEntries(archivePath, options);
+  if (archiveType(archivePath) === "7z") return listSevenZipEntries(archivePath, options);
+  if (archiveType(archivePath) === "rsn") return listRsnEntries(archivePath, options);
+  if (archiveType(archivePath) === "tzst") return listTarZstandardEntries(archivePath, options);
   throw new Error(`Unsupported archive type: ${path.extname(archivePath)}`);
 }
 
@@ -313,8 +332,12 @@ function escapeArchivePattern(entry) {
   })[character]);
 }
 
-function streamCommandToFile(program, args, outputPath, label, { reserveBytes = null } = {}) {
+function streamCommandToFile(program, args, outputPath, label, { reserveBytes = null, signal = null } = {}) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error(`${label} cancelled`));
+      return;
+    }
     const child = spawn(program, args, { stdio: ["ignore", "pipe", "pipe"] });
     const output = fsSync.createWriteStream(outputPath, { flags: "wx" });
     const stderrChunks = [];
@@ -322,10 +345,17 @@ function streamCommandToFile(program, args, outputPath, label, { reserveBytes = 
     let childCode = null;
     let outputFinished = false;
     let settled = false;
+    let abortError = null;
+    let forceKillTimer = null;
+    const cleanup = () => {
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      signal?.removeEventListener("abort", abort);
+    };
     const finish = (error = null) => {
       if (settled) return;
       if (error) {
         settled = true;
+        cleanup();
         child.kill();
         output.destroy();
         reject(error);
@@ -333,8 +363,19 @@ function streamCommandToFile(program, args, outputPath, label, { reserveBytes = 
       }
       if (childCode === null || !outputFinished) return;
       settled = true;
-      if (childCode === 0) resolve();
+      cleanup();
+      if (abortError) reject(abortError);
+      else if (childCode === 0) resolve();
       else reject(new Error(Buffer.concat(stderrChunks).toString("utf8").trim() || `${label} exited with code ${childCode}`));
+    };
+    const abort = () => {
+      if (settled || abortError) return;
+      abortError = signal?.reason instanceof Error ? signal.reason : new Error(`${label} cancelled`);
+      if (!child.killed) child.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        if (!settled) child.kill("SIGKILL");
+      }, 1_000);
+      forceKillTimer.unref?.();
     };
     const quota = reserveBytes ? new Transform({
       transform(chunk, _encoding, callback) {
@@ -363,6 +404,7 @@ function streamCommandToFile(program, args, outputPath, label, { reserveBytes = 
       outputFinished = true;
       finish();
     });
+    signal?.addEventListener("abort", abort, { once: true });
   });
 }
 
@@ -558,7 +600,7 @@ async function materializeDependencySetEntry(archivePath, selectedEntry, options
 async function materializeDependencySetEntryIntoRoot(archivePath, selectedEntry, dependencyKind, outputRoot, options = {}) {
   const outputPath = path.join(outputRoot, selectedEntry.split("/").join(path.sep));
   if (!outputPath.startsWith(`${outputRoot}${path.sep}`)) throw new Error(`Unsafe archive entry path: ${selectedEntry}`);
-  const entries = (await listArchiveEntries(archivePath)).filter((entry) => (
+  const entries = (await listArchiveEntries(archivePath, options)).filter((entry) => (
     (dependencyKind === "vgmstream" ? VGMSTREAM_COMPANION_EXTENSIONS : dependencyKind === "psf" ? PSF1_ARCHIVE_EXTENSIONS : dependencyKind === "psf2" ? PSF2_ARCHIVE_EXTENSIONS : DEPENDENCY_ARCHIVE_EXTENSIONS).has(path.extname(entry).toLowerCase())
   ));
   for (const entry of entries) {
@@ -586,6 +628,8 @@ async function materializeArchiveEntryForScan(archivePath, selectedEntry, option
   const scratchRoot = await createScanScratchRoot();
   const scratchOptions = {
     ...options,
+    scratchOwner: "scan",
+    reserveScratchBytes: options.reserveBytes,
     reserveBytes: disposableMaterializationReserve(options.reserveBytes, scratchRoot)
   };
   try {
@@ -637,6 +681,8 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
   const scratchRoot = await createScanScratchRoot();
   const scratchOptions = {
     ...options,
+    scratchOwner: "scan",
+    reserveScratchBytes: options.reserveBytes,
     reserveBytes: disposableMaterializationReserve(options.reserveBytes, scratchRoot)
   };
   const preparedDependencyKinds = new Set();
@@ -649,7 +695,7 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
     if (archiveType(archivePath) === "tzst") {
       const { temporaryRoot, rawTarPath } = await decompressTarZstandard(archivePath, scratchRoot, scratchOptions);
       try {
-        const listing = await execFileAsync(TAR_BINARY, ["-tf", rawTarPath], { maxBuffer: ARCHIVE_LIST_MAX_BUFFER });
+        const listing = await execFileAsync(TAR_BINARY, ["-tf", rawTarPath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, options.signal));
         const allEntries = listing.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
         const requiredEntries = new Set(entries);
         for (const selectedEntry of entries) {
@@ -735,13 +781,13 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
   }
 }
 
-async function archivePlayableEntries(archivePath, supportedExtension) {
-  const entries = await listArchiveEntries(archivePath);
+async function archivePlayableEntries(archivePath, supportedExtension, options = {}) {
+  const entries = await listArchiveEntries(archivePath, options);
   return entries.filter((entry) => supportedExtension(path.extname(entry).toLowerCase()));
 }
 
-async function archivePlayableEntriesWithSignature(archivePath, supportedExtension) {
-  const entries = await listArchiveEntries(archivePath);
+async function archivePlayableEntriesWithSignature(archivePath, supportedExtension, options = {}) {
+  const entries = await listArchiveEntries(archivePath, options);
   const signature = crypto.createHash("sha256").update(entries.slice().sort().join("\0")).digest("hex");
   return {
     entries: entries.filter((entry) => supportedExtension(path.extname(entry).toLowerCase())),
