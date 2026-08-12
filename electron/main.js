@@ -3,8 +3,8 @@ const fs = fsSync.promises;
 const path = require("path");
 const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, powerSaveBlocker, shell } = require("electron");
 const { LibraryDatabase } = require("./library-database");
-const { BACKEND_MODULES, backendForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
-const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, isSupportedArchivePath, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
+const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
+const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, isSupportedArchivePath, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
 const { scanLibraryRoot: scanLibraryRootService } = require("./library-scan-service");
 const { discoverPhysicalSources } = require("./scanner-discovery");
 const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./scanner-archive");
@@ -21,8 +21,10 @@ const { createLatestRequestCoalescer } = require("./latest-request-coalescer");
 const LEGACY_USER_DATA_DIRECTORY = "spcboy-electron-port";
 app.setName("SPCBoy");
 app.setPath("userData", path.join(app.getPath("appData"), LEGACY_USER_DATA_DIRECTORY));
+const ownsSingleInstance = app.requestSingleInstanceLock();
+if (!ownsSingleInstance) app.quit();
 
-const SCAN_VERSION = 2;
+const SCAN_VERSION = 3;
 const TREE_BUILD_CONCURRENCY = 24;
 const RAW_TREE_CONCURRENCY = 8;
 const LIBRARY_SCAN_CONCURRENCY = 8;
@@ -46,6 +48,7 @@ let libraryDatabase = null;
 let activeLibraryJob = null;
 let scanScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
 let playbackScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
+let archiveCacheRecovery = { recoveredPartialCount: 0, recoveredBytes: 0 };
 let quitAfterLibraryCleanup = false;
 let quitAfterArchivePlaybackCleanup = false;
 let activeArchivePlaybackMaterialization = null;
@@ -54,9 +57,12 @@ const { readPlaylist, readPlaylistForFile } = createPlaylistReader({
   fs,
   path,
   supportsPath,
+  routeForPath,
   isSupportedArchivePath,
   discoverPhysicalSources,
   expandArchiveSources,
+  materializeArchiveEntries: materializeArchiveEntriesForScan,
+  inspectTrackVariants: (...args) => inspectTrackVariants(...args),
   archiveListConcurrency: ARCHIVE_LIST_CONCURRENCY
 });
 let activeLibraryProgress = null;
@@ -145,18 +151,14 @@ function broadcastLibraryProgress(progress) {
 }
 
 function bringAppWindowsToFront(preferredWindow = null) {
-  const windows = [mainWindow, optionsWindow, scanLogWindow, aboutWindow]
-    .filter((window) => window && !window.isDestroyed());
-  for (const window of windows) {
-    if (window.isMinimized()) window.restore();
-    if (!window.isVisible()) window.showInactive();
-    if (typeof window.moveTop === "function") window.moveTop();
-  }
-
   const focusedWindow = preferredWindow && !preferredWindow.isDestroyed()
     ? preferredWindow
     : BrowserWindow.getFocusedWindow() || mainWindow;
-  if (focusedWindow && !focusedWindow.isFocused()) focusedWindow.focus();
+  if (!focusedWindow || focusedWindow.isDestroyed()) return;
+  if (focusedWindow.isMinimized()) focusedWindow.restore();
+  if (!focusedWindow.isVisible()) focusedWindow.show();
+  if (typeof focusedWindow.moveTop === "function") focusedWindow.moveTop();
+  if (!focusedWindow.isFocused()) focusedWindow.focus();
 }
 
 async function openOptionsWindow() {
@@ -610,7 +612,7 @@ async function isDirectory(targetPath) {
   }
 }
 
-const { inspectTrack, inspectTrackVariantsForScan } = createTrackInspector({
+const { inspectTrack, inspectTrackVariants, inspectTrackVariantsForScan } = createTrackInspector({
   nativeAudio,
   cacheMaxEntries: METADATA_CACHE_MAX_ENTRIES
 });
@@ -1106,7 +1108,19 @@ ipcMain.handle("app:bootstrap", async () => {
 });
 
 ipcMain.handle("library:choose-root", async () => chooseLibrarySnapshot());
-ipcMain.handle("library:choose-path", async () => chooseLibraryPath());
+ipcMain.handle("library:choose-path", async () => {
+  const rootPaths = await chooseLibraryPath();
+  if (!rootPaths) return null;
+  const existingIds = new Set((await libraryDatabase.loadRoots()).map((root) => Number(root.id)));
+  for (const rootPath of rootPaths) await libraryDatabase.ensureRoot(rootPath);
+  const roots = await libraryDatabase.loadRoots();
+  broadcastLibraryRoots(roots);
+  return {
+    roots,
+    selectedCount: rootPaths.length,
+    addedCount: roots.filter((root) => !existingIds.has(Number(root.id))).length
+  };
+});
 ipcMain.handle("library:open-path", async (_event, inputPath) => {
   const droppedPath = normalizeFolderPath(inputPath);
   const droppedStat = await fs.stat(droppedPath).catch(() => null);
@@ -1161,11 +1175,14 @@ function broadcastLibraryRoots(roots) {
   }
 }
 
-ipcMain.handle("library:database-add-root", async (_event, rootPath) => {
-  const roots = await libraryDatabase.ensureRoot(normalizeFolderPath(rootPath));
-  broadcastLibraryRoots(await libraryDatabase.loadRoots());
-  return roots;
-});
+function broadcastLibraryDatabaseChanged(change, excludedWebContents = null) {
+  for (const window of [mainWindow, optionsWindow]) {
+    if (window && !window.isDestroyed() && window.webContents !== excludedWebContents) {
+      window.webContents.send("library:database-changed", change);
+    }
+  }
+}
+
 ipcMain.handle("library:database-remove-root", async (_event, rootId) => {
   const roots = await libraryDatabase.removeRoot(rootId);
   broadcastLibraryRoots(roots);
@@ -1187,13 +1204,26 @@ ipcMain.handle("library:database-move-root", async (_event, rootId, direction) =
   return roots;
 });
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
+ipcMain.handle("library:console-tag-preference", async (event, enabled) => {
+  if (activeLibraryJob) throw new Error("Finish the active library operation before changing console-tag source.");
+  const value = await libraryDatabase.setPreferEmbeddedConsoleTags(enabled);
+  broadcastLibraryDatabaseChanged({
+    roots: await libraryDatabase.loadRoots(),
+    preferEmbeddedConsoleTags: value
+  }, event.sender);
+  return value;
+});
 ipcMain.handle("library:database-search-games", async (_event, query) => searchDatabaseGames(query));
 ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>
   searchDatabaseBrowser(normalizeFolderPath(rootPath), query));
 ipcMain.handle("library:database-game-tracks", async (_event, games) => {
   return libraryDatabase.tracksForGames(Array.isArray(games) ? games : []);
 });
-ipcMain.handle("library:database-scan", async (_event, rootPath, deepScan = false) => scanLibraryRoot(rootPath, null, { deepScan }));
+ipcMain.handle("library:database-scan", async (_event, rootId, deepScan = false) => {
+  const root = await libraryDatabase.loadRoot(rootId);
+  if (!root) throw new Error("The requested library root is not configured.");
+  return scanLibraryRoot(root.path, null, { deepScan });
+});
 ipcMain.handle("library:database-scan-all", async (_event, deepScan = false) => {
   return withLibraryJob("Library scan", async (job) => {
     const roots = (await libraryDatabase.loadRoots()).filter((root) => root.is_enabled);
@@ -1230,7 +1260,7 @@ ipcMain.handle("library:database-maintenance-summary", async () => {
     unlinkedTrackCount: await libraryDatabase.deadTrackCount(),
     databaseStorage: await libraryDatabase.databaseStorageMetrics(),
     lastAtomicScan: libraryDatabase.lastAtomicScanMetrics,
-    archiveCache: await archiveCacheSummary()
+    archiveCache: { ...await archiveCacheSummary(), recovery: archiveCacheRecovery }
   };
 });
 ipcMain.handle("library:archive-cache-summary", async () => ({
@@ -1436,7 +1466,13 @@ ipcMain.handle("playback:set-power-save-blocker", async (_event, enabled) => {
   return true;
 });
 
+app.on("second-instance", () => {
+  if (app.isReady()) bringAppWindowsToFront();
+});
+
 app.whenReady().then(async () => {
+  if (!ownsSingleInstance) return;
+  archiveCacheRecovery = await recoverArchiveCachePartials();
   scanScratchRecovery = await recoverAbandonedScanScratchRoots();
   playbackScratchRecovery = await recoverAbandonedPlaybackScratchRoots();
   libraryDatabase = new LibraryDatabase(path.join(app.getPath("userData"), "Library.sqlite"));

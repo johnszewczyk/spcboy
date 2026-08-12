@@ -54,8 +54,11 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
     if (cached) return cached;
 
     const extension = path.extname(trackPath).toLowerCase();
-    const basename = path.basename(trackPath, extension);
-    const parentName = path.basename(path.dirname(trackPath));
+    const sourceDisplayPath = String(sourceName || trackPath);
+    const sourceExtension = path.extname(sourceDisplayPath).toLowerCase();
+    const basename = path.basename(sourceDisplayPath, sourceExtension);
+    const sourceDirectory = path.dirname(sourceDisplayPath);
+    const parentName = sourceDirectory === "." ? "" : path.basename(sourceDirectory);
     const backend = backendForPath(trackPath);
     const specialAudio = extension === ".wav" ? await detectSpecialWav(trackPath, sourceName).catch(() => null) : null;
     const spcMetadata = extension === ".spc" ? await readSpcMetadata(trackPath) : null;

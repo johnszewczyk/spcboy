@@ -251,6 +251,10 @@ refs.consoleViewCheckbox.addEventListener("change", (event) => {
   app.ui.setConsoleViewEnabled(event.target.checked);
 });
 
+refs.preferEmbeddedConsoleTagsCheckbox.addEventListener("change", (event) => {
+  app.ui.setPreferEmbeddedConsoleTags(event.target.checked).catch((error) => console.error("[SPCBoy] console-tag preference failed", error));
+});
+
 if (window.spcBoy?.onConsoleViewChanged) {
   window.spcBoy.onConsoleViewChanged((enabled) => {
     app.ui.setConsoleViewEnabled(enabled, false);
@@ -467,18 +471,12 @@ refs.sidebarSearchInput.addEventListener("input", (event) => {
   app.ui.updateSidebarSearch(event.target.value);
 });
 
-refs.sidebarFoldersButton.addEventListener("click", () => {
-  state.sidebarMode = "folders";
-  state.selectedDatabaseGameKey = null;
+refs.sidebarViewToggleButton.addEventListener("click", () => {
+  state.sidebarMode = state.sidebarMode === "database" ? "folders" : "database";
+  if (state.sidebarMode === "folders") state.selectedDatabaseGameKey = null;
+  else state.consoleViewEnabled = true;
   app.persistSettings();
-  app.ui.updateSidebarSearch(state.sidebarQuery);
-});
-
-refs.sidebarDatabaseButton.addEventListener("click", () => {
-  state.sidebarMode = "database";
-  state.consoleViewEnabled = true;
-  app.persistSettings();
-  if (state.databaseGames.length) {
+  if (state.sidebarMode === "folders" || state.databaseGames.length || state.sidebarQuery.trim()) {
     app.ui.updateSidebarSearch(state.sidebarQuery);
     return;
   }

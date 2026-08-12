@@ -3,12 +3,11 @@ const fs = fsSync.promises;
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
-const { execFile, spawn } = require("child_process");
-const { promisify } = require("util");
+const { spawn } = require("child_process");
 const { Transform } = require("stream");
+const { StringDecoder } = require("string_decoder");
 const { ArchiveCacheGate } = require("./archive-cache-gate");
 
-const execFileAsync = promisify(execFile);
 const ZIP_BINARY = process.env.SPCBOY_UNZIP_BINARY || "/usr/bin/unzip";
 const BSDTAR_BINARY = process.env.SPCBOY_BSDTAR_BINARY || "/usr/bin/bsdtar";
 const TAR_BINARY = process.env.SPCBOY_TAR_BINARY || "/usr/bin/bsdtar";
@@ -16,8 +15,9 @@ const ZSTD_BINARY = process.env.SPCBOY_ZSTD_BINARY || "/opt/homebrew/bin/zstd";
 const SEVEN_ZIP_BINARY = process.env.SPCBOY_7Z_BINARY || "/opt/homebrew/bin/7zz";
 const LSAR_BINARY = process.env.SPCBOY_LSAR_BINARY || "/opt/homebrew/bin/lsar";
 const UNAR_BINARY = process.env.SPCBOY_UNAR_BINARY || "/opt/homebrew/bin/unar";
-const ARCHIVE_LIST_MAX_BUFFER = 128 * 1024 * 1024;
-const ARCHIVE_ENTRY_MAX_BUFFER = 128 * 1024 * 1024;
+const ARCHIVE_LIST_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+const ARCHIVE_LIST_MAX_ENTRIES = 250_000;
+const ARCHIVE_ENTRY_MAX_NAME_BYTES = 32 * 1024;
 function cacheRootPath() {
   return process.env.SPCBOY_ARCHIVE_CACHE_ROOT
     || path.join(os.tmpdir(), "SPCBoy", "ArchiveCache");
@@ -47,12 +47,9 @@ const MIN_ARCHIVE_CACHE_LIMIT_BYTES = 128 * 1024 * 1024;
 const MAX_ARCHIVE_CACHE_LIMIT_BYTES = 16 * 1024 * 1024 * 1024;
 const PLAYBACK_SCRATCH_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const PLAYBACK_SCRATCH_MIN_FREE_BYTES = 1024 * 1024 * 1024;
+const SCRATCH_OWNER_FILE = ".spcboy-owner.json";
 const activeScanScratchRoots = new Set();
 const activePlaybackScratchRoots = new Set();
-
-function commandOptions(maxBuffer, signal = null) {
-  return signal ? { maxBuffer, signal } : { maxBuffer };
-}
 
 function scanScratchParentPath() {
   return process.env.SPCBOY_SCAN_SCRATCH_ROOT || os.tmpdir();
@@ -67,15 +64,44 @@ async function directoryByteCount(rootPath) {
   const entries = await fs.readdir(rootPath, { withFileTypes: true }).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
   for (const entry of entries) {
     const entryPath = path.join(rootPath, entry.name);
+    if (entry.name === SCRATCH_OWNER_FILE) continue;
     if (entry.isDirectory()) total += await directoryByteCount(entryPath);
     else if (entry.isFile()) total += (await fs.stat(entryPath)).size;
   }
   return total;
 }
 
+async function writeScratchOwner(rootPath) {
+  await fs.writeFile(path.join(rootPath, SCRATCH_OWNER_FILE), JSON.stringify({
+    pid: process.pid,
+    token: crypto.randomUUID(),
+    createdAt: Date.now()
+  }), { encoding: "utf8", flag: "wx" });
+}
+
+async function scratchOwnerIsLive(rootPath) {
+  const owner = await fs.readFile(path.join(rootPath, SCRATCH_OWNER_FILE), "utf8")
+    .then(JSON.parse)
+    .catch(() => null);
+  const pid = Number(owner?.pid);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
 async function createScanScratchRoot() {
   await fs.mkdir(scanScratchParentPath(), { recursive: true });
   const rootPath = await fs.mkdtemp(path.join(scanScratchParentPath(), SCAN_SCRATCH_PREFIX));
+  try {
+    await writeScratchOwner(rootPath);
+  } catch (error) {
+    await fs.rm(rootPath, { recursive: true, force: true });
+    throw error;
+  }
   activeScanScratchRoots.add(rootPath);
   return rootPath;
 }
@@ -96,6 +122,12 @@ function isPlaybackScratchRoot(rootPath) {
 async function createPlaybackScratchRoot() {
   await fs.mkdir(scanScratchParentPath(), { recursive: true });
   const rootPath = await fs.mkdtemp(path.join(scanScratchParentPath(), PLAYBACK_SCRATCH_PREFIX));
+  try {
+    await writeScratchOwner(rootPath);
+  } catch (error) {
+    await fs.rm(rootPath, { recursive: true, force: true });
+    throw error;
+  }
   activePlaybackScratchRoots.add(rootPath);
   return rootPath;
 }
@@ -123,6 +155,7 @@ async function recoverAbandonedScanScratchRoots() {
     if (!entry.isDirectory() || !entry.name.startsWith(SCAN_SCRATCH_PREFIX)) continue;
     const rootPath = path.join(scanScratchParentPath(), entry.name);
     if (activeScanScratchRoots.has(rootPath)) continue;
+    if (await scratchOwnerIsLive(rootPath)) continue;
     const bytes = await directoryByteCount(rootPath).catch(() => 0);
     await fs.rm(rootPath, { recursive: true, force: true });
     recovered.recoveredRootCount += 1;
@@ -138,6 +171,7 @@ async function recoverAbandonedPlaybackScratchRoots() {
     if (!entry.isDirectory() || !entry.name.startsWith(PLAYBACK_SCRATCH_PREFIX)) continue;
     const rootPath = path.join(scanScratchParentPath(), entry.name);
     if (activePlaybackScratchRoots.has(rootPath)) continue;
+    if (await scratchOwnerIsLive(rootPath)) continue;
     const bytes = await directoryByteCount(rootPath).catch(() => 0);
     await fs.rm(rootPath, { recursive: true, force: true });
     recovered.recoveredRootCount += 1;
@@ -223,30 +257,170 @@ async function materializeTxtpRelativeAliases(outputRoot, entries) {
   }
 }
 
-async function fastArchiveSignature(archivePath) {
-  const stat = await fs.stat(archivePath);
-  const handle = await fs.open(archivePath, "r");
+async function fastSourceSignature(sourcePath, knownStat = null) {
+  const stat = knownStat || await fs.stat(sourcePath);
+  const handle = await fs.open(sourcePath, "r");
   try {
+    const readAt = async (length, position) => {
+      const buffer = Buffer.alloc(length);
+      let offset = 0;
+      while (offset < length) {
+        const result = await handle.read(buffer, offset, length - offset, position + offset);
+        if (!result.bytesRead) break;
+        offset += result.bytesRead;
+      }
+      return offset === length ? buffer : buffer.subarray(0, offset);
+    };
     const sampleSize = 64 * 1024;
-    const firstLength = Math.min(sampleSize, stat.size);
-    const first = Buffer.alloc(firstLength);
-    if (firstLength) await handle.read(first, 0, firstLength, 0);
-    const lastLength = stat.size > sampleSize ? sampleSize : 0;
-    const last = Buffer.alloc(lastLength);
-    if (lastLength) await handle.read(last, 0, lastLength, Math.max(0, stat.size - lastLength));
-    return crypto.createHash("sha256")
-      .update(`${stat.size}\0${stat.mtimeMs}\0`)
-      .update(first)
-      .update(last)
-      .digest("hex");
+    const fullHashThreshold = 1024 * 1024;
+    const hash = crypto.createHash("sha256")
+      .update(`spcboy-source-v2\0${stat.size}\0${stat.mtimeMs}\0${stat.ctimeMs}\0${stat.dev}\0${stat.ino}\0`);
+    if (stat.size <= fullHashThreshold) {
+      const contents = await readAt(stat.size, 0);
+      return hash.update(contents).digest("hex");
+    }
+    const offsets = [
+      0,
+      Math.max(0, Math.floor((stat.size - sampleSize) / 2)),
+      Math.max(0, stat.size - sampleSize)
+    ];
+    for (const offset of offsets) {
+      const sample = await readAt(Math.min(sampleSize, stat.size - offset), offset);
+      hash.update(sample);
+    }
+    return hash.digest("hex");
   } finally {
     await handle.close();
   }
 }
 
-async function listZipEntries(archivePath, { signal = null } = {}) {
-  const result = await execFileAsync(ZIP_BINARY, ["-Z1", archivePath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, signal));
-  return result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
+const fastArchiveSignature = fastSourceSignature;
+
+function listingLimit(options, key, fallback) {
+  const value = Number(options?.[key]);
+  return Number.isFinite(value) && value > 0 ? Math.min(fallback, Math.floor(value)) : fallback;
+}
+
+function createArchiveEntryCollector(options = {}) {
+  const maxEntries = listingLimit(options, "maxEntries", ARCHIVE_LIST_MAX_ENTRIES);
+  const maxEntryNameBytes = listingLimit(options, "maxEntryNameBytes", ARCHIVE_ENTRY_MAX_NAME_BYTES);
+  const entries = [];
+  return {
+    add(entry) {
+      const value = String(entry ?? "");
+      if (!value || !isSafeEntry(value)) return;
+      const nameBytes = Buffer.byteLength(value, "utf8");
+      if (nameBytes > maxEntryNameBytes) throw new Error(`Archive member name exceeds the ${maxEntryNameBytes}-byte safety limit.`);
+      if (entries.length >= maxEntries) throw new Error(`Archive contains more than the ${maxEntries}-entry safety limit.`);
+      entries.push(value);
+    },
+    entries
+  };
+}
+
+function runListingCommand(program, args, label, { signal = null, maxOutputBytes = ARCHIVE_LIST_MAX_OUTPUT_BYTES, onLine = null } = {}) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error(`${label} cancelled`));
+      return;
+    }
+    const child = spawn(program, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const outputLimit = Math.min(ARCHIVE_LIST_MAX_OUTPUT_BYTES, Math.max(1, Number(maxOutputBytes) || ARCHIVE_LIST_MAX_OUTPUT_BYTES));
+    const decoder = onLine ? new StringDecoder("utf8") : null;
+    const outputChunks = [];
+    const stderrChunks = [];
+    let pendingLine = "";
+    let outputBytes = 0;
+    let stderrBytes = 0;
+    let failure = null;
+    let forceKillTimer = null;
+    const cleanup = () => {
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      signal?.removeEventListener("abort", abort);
+    };
+    const stop = (error) => {
+      if (failure) return;
+      failure = error;
+      if (!child.killed) child.kill("SIGTERM");
+      forceKillTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }, 1_000);
+      forceKillTimer.unref?.();
+    };
+    const emitLine = (line) => {
+      const value = line.endsWith("\r") ? line.slice(0, -1) : line;
+      onLine(value);
+    };
+    const consumeText = (text) => {
+      pendingLine += text;
+      while (true) {
+        const newline = pendingLine.indexOf("\n");
+        if (newline < 0) break;
+        const line = pendingLine.slice(0, newline);
+        pendingLine = pendingLine.slice(newline + 1);
+        emitLine(line);
+      }
+      if (Buffer.byteLength(pendingLine, "utf8") > ARCHIVE_ENTRY_MAX_NAME_BYTES + 4096) {
+        throw new Error("Archive listing contains an overlong output line.");
+      }
+    };
+    const abort = () => stop(signal?.reason instanceof Error ? signal.reason : new Error(`${label} cancelled`));
+
+    child.stdout.on("data", (chunk) => {
+      if (failure) return;
+      outputBytes += chunk.length;
+      if (outputBytes > outputLimit) {
+        stop(new Error(`${label} exceeds the ${outputLimit}-byte listing-output safety limit.`));
+        return;
+      }
+      try {
+        if (onLine) consumeText(decoder.write(chunk));
+        else outputChunks.push(chunk);
+      } catch (error) {
+        stop(error);
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      if (stderrBytes >= 1024 * 1024) return;
+      const retained = chunk.subarray(0, Math.max(0, 1024 * 1024 - stderrBytes));
+      stderrChunks.push(retained);
+      stderrBytes += retained.length;
+    });
+    child.on("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.on("close", (code) => {
+      cleanup();
+      if (!failure && onLine) {
+        try {
+          consumeText(decoder.end());
+          if (pendingLine) emitLine(pendingLine);
+        } catch (error) {
+          failure = error;
+        }
+      }
+      if (failure) {
+        reject(failure);
+        return;
+      }
+      if (code !== 0) {
+        reject(new Error(Buffer.concat(stderrChunks).toString("utf8").trim() || `${label} exited with code ${code}`));
+        return;
+      }
+      resolve(onLine ? null : Buffer.concat(outputChunks).toString("utf8"));
+    });
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+async function listZipEntries(archivePath, options = {}) {
+  const collector = createArchiveEntryCollector(options);
+  await runListingCommand(ZIP_BINARY, ["-Z1", archivePath], "ZIP listing", {
+    ...options,
+    onLine: (entry) => collector.add(entry)
+  });
+  return collector.entries;
 }
 
 function archiveType(archivePath) {
@@ -265,20 +439,25 @@ function isSupportedArchivePath(archivePath) {
   return archiveType(archivePath) !== null;
 }
 
-async function listSevenZipEntries(archivePath, { signal = null } = {}) {
-  const result = await execFileAsync(SEVEN_ZIP_BINARY, ["l", "-slt", "-ba", archivePath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, signal));
-  return result.stdout.split(/\r?\n/)
-    .filter((line) => line.startsWith("Path = "))
-    .map((line) => line.slice("Path = ".length).trim())
-    .filter((entry) => entry && !entry.endsWith("/") && isSafeEntry(entry));
+async function listSevenZipEntries(archivePath, options = {}) {
+  const collector = createArchiveEntryCollector(options);
+  await runListingCommand(SEVEN_ZIP_BINARY, ["l", "-slt", "-ba", archivePath], "7z listing", {
+    ...options,
+    onLine: (line) => {
+      if (!line.startsWith("Path = ")) return;
+      const entry = line.slice("Path = ".length);
+      if (!entry.endsWith("/")) collector.add(entry);
+    }
+  });
+  return collector.entries;
 }
 
-async function listRsnEntries(archivePath, { signal = null } = {}) {
-  const result = await execFileAsync(LSAR_BINARY, ["-j", archivePath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, signal));
-  const listing = JSON.parse(result.stdout);
-  return (listing.lsarContents || [])
-    .map((entry) => entry.XADFileName)
-    .filter((entry) => entry && isSafeEntry(entry));
+async function listRsnEntries(archivePath, options = {}) {
+  const output = await runListingCommand(LSAR_BINARY, ["-j", "-jss", archivePath], "RSN listing", options);
+  const listing = JSON.parse(output);
+  const collector = createArchiveEntryCollector(options);
+  for (const entry of listing.lsarContents || []) collector.add(entry.XADFileName);
+  return collector.entries;
 }
 
 async function decompressTarZstandard(archivePath, parentRoot = null, options = {}) {
@@ -304,8 +483,12 @@ async function listTarZstandardEntries(archivePath, options = {}) {
   try {
     const { temporaryRoot, rawTarPath } = await decompressTarZstandard(archivePath, scratchRoot, scratchOptions);
     try {
-      const result = await execFileAsync(TAR_BINARY, ["-tf", rawTarPath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, options.signal));
-      return result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
+      const collector = createArchiveEntryCollector(options);
+      await runListingCommand(TAR_BINARY, ["-tf", rawTarPath], "TAR listing", {
+        ...options,
+        onLine: (entry) => collector.add(entry)
+      });
+      return collector.entries;
     } finally {
       await fs.rm(temporaryRoot, { recursive: true, force: true });
     }
@@ -466,9 +649,13 @@ async function materializeZipEntryUnlocked(archivePath, entry, options = {}) {
     return outputPath;
   } catch {}
   await fs.mkdir(cacheRootPath(), { recursive: true });
-  const tempPath = `${outputPath}.tmp-${process.pid}`;
-  await streamArchiveEntryToFile(archivePath, entry, tempPath, null, options);
-  await fs.rename(tempPath, outputPath);
+  const tempPath = `${outputPath}.tmp-${process.pid}-${crypto.randomUUID()}`;
+  try {
+    await streamArchiveEntryToFile(archivePath, entry, tempPath, null, options);
+    await fs.rename(tempPath, outputPath);
+  } finally {
+    await fs.rm(tempPath, { force: true });
+  }
   return outputPath;
 }
 
@@ -515,6 +702,30 @@ async function archiveCacheEntries(rootPath) {
     results.push({ path: entryPath, bytes: stat.isDirectory() ? await directoryByteCount(entryPath) : stat.size, lastUsed });
   }
   return results;
+}
+
+async function recoverArchiveCachePartials() {
+  return archiveCacheGate.clear(async () => {
+    let recoveredPartialCount = 0;
+    let recoveredBytes = 0;
+    for (const rootPath of new Set([cacheRootPath(), legacyCacheRootPath()])) {
+      const entries = await fs.readdir(rootPath, { withFileTypes: true })
+        .catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
+      for (const entry of entries) {
+        const entryPath = path.join(rootPath, entry.name);
+        const temporaryFile = entry.isFile() && entry.name.includes(".tmp-");
+        const incompleteDependencyRoot = entry.isDirectory()
+          && !await fs.access(path.join(entryPath, ".complete")).then(() => true).catch(() => false);
+        if (!temporaryFile && !incompleteDependencyRoot) continue;
+        recoveredBytes += entry.isDirectory()
+          ? await directoryByteCount(entryPath).catch(() => 0)
+          : Number((await fs.stat(entryPath).catch(() => null))?.size || 0);
+        await fs.rm(entryPath, { recursive: true, force: true });
+        recoveredPartialCount += 1;
+      }
+    }
+    return { recoveredPartialCount, recoveredBytes, ...await archiveCacheSummary() };
+  });
 }
 
 async function pruneArchiveCacheUnlocked(limitBytes, protectedPaths = []) {
@@ -592,8 +803,13 @@ async function materializeDependencySetEntry(archivePath, selectedEntry, options
 
   await fs.mkdir(outputRoot, { recursive: true });
   const materializedPath = await materializeDependencySetEntryIntoRoot(archivePath, selectedEntry, dependencyKind, outputRoot, options);
-  await fs.writeFile(`${completionPath}.tmp-${process.pid}`, "complete", "utf8");
-  await fs.rename(`${completionPath}.tmp-${process.pid}`, completionPath);
+  const temporaryCompletionPath = `${completionPath}.tmp-${process.pid}-${crypto.randomUUID()}`;
+  try {
+    await fs.writeFile(temporaryCompletionPath, "complete", { encoding: "utf8", flag: "wx" });
+    await fs.rename(temporaryCompletionPath, completionPath);
+  } finally {
+    await fs.rm(temporaryCompletionPath, { force: true });
+  }
   return materializedPath;
 }
 
@@ -611,9 +827,13 @@ async function materializeDependencySetEntryIntoRoot(archivePath, selectedEntry,
       continue;
     } catch {}
     await fs.mkdir(path.dirname(destination), { recursive: true });
-    const tempPath = `${destination}.tmp-${process.pid}`;
-    await streamArchiveEntryToFile(archivePath, entry, tempPath, null, options);
-    await fs.rename(tempPath, destination);
+    const tempPath = `${destination}.tmp-${process.pid}-${crypto.randomUUID()}`;
+    try {
+      await streamArchiveEntryToFile(archivePath, entry, tempPath, null, options);
+      await fs.rename(tempPath, destination);
+    } finally {
+      await fs.rm(tempPath, { force: true });
+    }
   }
   if (dependencyKind === "vgmstream") {
     await materializeTxtpRelativeAliases(outputRoot, entries);
@@ -695,8 +915,12 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
     if (archiveType(archivePath) === "tzst") {
       const { temporaryRoot, rawTarPath } = await decompressTarZstandard(archivePath, scratchRoot, scratchOptions);
       try {
-        const listing = await execFileAsync(TAR_BINARY, ["-tf", rawTarPath], commandOptions(ARCHIVE_LIST_MAX_BUFFER, options.signal));
-        const allEntries = listing.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).filter(isSafeEntry);
+        const collector = createArchiveEntryCollector(options);
+        await runListingCommand(TAR_BINARY, ["-tf", rawTarPath], "TAR listing", {
+          ...options,
+          onLine: (entry) => collector.add(entry)
+        });
+        const allEntries = collector.entries;
         const requiredEntries = new Set(entries);
         for (const selectedEntry of entries) {
           const extension = path.extname(selectedEntry).toLowerCase();
@@ -849,4 +1073,4 @@ function isArchiveCacheBusy() {
   return archiveCacheGate.isBusy;
 }
 
-module.exports = { archivePlayableEntries, archivePlayableEntriesWithSignature, materializeArchiveEntryForScan, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, materializeZipEntry, listZipEntries, listArchiveEntries, archiveType, isSupportedArchivePath, archiveCacheSummary, clearArchiveCache, pruneArchiveCache, cacheRootPath, fastArchiveSignature, isArchiveCacheBusy, scanScratchSummary, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, availableScratchBytes, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES };
+module.exports = { archivePlayableEntries, archivePlayableEntriesWithSignature, materializeArchiveEntryForScan, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, materializeZipEntry, listZipEntries, listArchiveEntries, archiveType, isSupportedArchivePath, archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, cacheRootPath, fastSourceSignature, fastArchiveSignature, isArchiveCacheBusy, scanScratchSummary, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, availableScratchBytes, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES };

@@ -2,7 +2,7 @@
 
 SPCBoy is a macOS player for game-music libraries: browse folders or a game-and-console database, preview a game in the playlist, and play it directly from ordinary files or supported archives.
 
-It is built for large collections. Scans are reusable, source files can be tested later, archive playback avoids a runaway extraction cache, and search stays available across Folders and Database views.
+It is built for large collections. Scans are reusable, source files can be tested later, archive playback avoids a runaway extraction cache, and search is one consistent temporary view across Folders and Database modes.
 
 Playback includes Native Long Play, repeat and shuffle controls, faded skips, a 10-band EQ, decoder-specific play speed, and a small theme system for the interface. Overlapping decoder support can be routed in Options.
 

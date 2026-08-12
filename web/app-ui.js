@@ -744,7 +744,7 @@ function setAllDatabaseConsolesCollapsed(collapsed) {
 }
 
 async function setAllSidebarNodesCollapsed(collapsed) {
-  if (state.sidebarMode === "database") {
+  if (state.sidebarQuery.trim() || state.sidebarMode === "database") {
     setAllDatabaseConsolesCollapsed(collapsed);
     return;
   }
@@ -795,20 +795,20 @@ async function refreshDatabaseGamesForVisibleRoots() {
 
 function updateSidebarSearch(query) {
   state.sidebarQuery = String(query || "");
-  const folderGeneration = ++state.folderSearchGeneration;
+  state.folderSearchGeneration += 1;
   const databaseGeneration = ++state.databaseSearchGeneration;
   state.folderSearchEntries = null;
   state.folderSidebarError = "";
-  state.databaseSearchGames = state.sidebarMode === "database" ? immediateDatabaseSearch(state.sidebarQuery) : null;
+  state.databaseSearchGames = state.sidebarQuery.trim() ? immediateDatabaseSearch(state.sidebarQuery) : null;
   window.clearTimeout(sidebarSearchTimer);
   renderSidebar();
   const requestedQuery = state.sidebarQuery.trim();
   if (!requestedQuery) return;
-  if (state.sidebarMode === "database" && window.spcBoy?.databaseSearchGames) {
+  if (window.spcBoy?.databaseSearchGames) {
     sidebarSearchTimer = window.setTimeout(() => {
       window.spcBoy.databaseSearchGames(requestedQuery)
         .then((games) => {
-          if (databaseGeneration !== state.databaseSearchGeneration || state.sidebarMode !== "database" || state.sidebarQuery.trim() !== requestedQuery) return;
+          if (databaseGeneration !== state.databaseSearchGeneration || state.sidebarQuery.trim() !== requestedQuery) return;
           state.databaseSidebarError = "";
           state.databaseSearchGames = Array.isArray(games) ? games : [];
           renderSidebar();
@@ -820,30 +820,13 @@ function updateSidebarSearch(query) {
     }, 120);
     return;
   }
-  if (state.sidebarMode !== "folders" || !state.rootPath || !window.spcBoy?.databaseSearchBrowser) return;
-  // The SQLite worker processes requests serially. Debouncing prevents every
-  // intermediate keystroke from delaying the final Folder-view search.
-  sidebarSearchTimer = window.setTimeout(() => {
-    window.spcBoy.databaseSearchBrowser(state.rootPath, requestedQuery)
-      .then((entries) => {
-        if (folderGeneration !== state.folderSearchGeneration || state.sidebarMode !== "folders" || state.sidebarQuery.trim() !== requestedQuery) return;
-        // Unscanned paths retain the existing raw-tree filter. Indexed results
-        // add descendants that were not previously unfolded in Folder view.
-        state.folderSearchEntries = Array.isArray(entries) && entries.length ? entries : null;
-        state.folderSidebarError = "";
-        renderSidebar();
-      })
-      .catch((error) => {
-        if (folderGeneration !== state.folderSearchGeneration || state.sidebarMode !== "folders") return;
-        const detail = String(error?.message || error || "Unknown database error");
-        state.folderSidebarError = `Could not search indexed folders: ${detail}`;
-        console.error("[SPCBoy] indexed sidebar search failed", error);
-        renderTree();
-      });
-  }, 120);
 }
 
 async function handleLibraryDatabaseChanged(change = {}) {
+  if (typeof change.preferEmbeddedConsoleTags === "boolean") {
+    state.preferEmbeddedConsoleTags = change.preferEmbeddedConsoleTags;
+    persistSettings();
+  }
   const missingPaths = new Set(Array.isArray(change.missingSourcePaths) ? change.missingSourcePaths : []);
   if (missingPaths.size) {
     const currentTrack = state.playlist.find((track) => track.id === state.currentTrackId);
@@ -857,7 +840,7 @@ async function handleLibraryDatabaseChanged(change = {}) {
   }
   if (Array.isArray(change.roots)) state.libraryRoots = change.roots;
   await refreshDatabaseGamesForVisibleRoots();
-  if (state.rootPath && window.spcBoy?.refreshTree) {
+  if (!window.spcBoy?.isOptionsWindow && state.rootPath && window.spcBoy?.refreshTree) {
     try {
       const snapshot = await window.spcBoy.refreshTree(state.rootPath, state.selectedFolderPath);
       state.tree = snapshot.tree || state.tree;
@@ -874,13 +857,13 @@ function reportDatabaseSidebarError(action, error) {
   const detail = String(error?.message || error || "Unknown database error");
   state.databaseSidebarError = `Could not ${action}: ${detail}`;
   console.error(`[SPCBoy] could not ${action}`, error);
-  if (state.sidebarMode === "database") renderDatabaseGames();
+  if (state.sidebarQuery.trim() || state.sidebarMode === "database") renderDatabaseGames();
 }
 
 function databaseRowsToPlaylistTracks(rows, games) {
   const fallbackGame = games[0] || {};
   return rows.map((row, index) => ({
-    id: `${row.path}#${row.trackIndex || 0}`,
+    id: `${row.archivePath ? `${row.archivePath}#${row.archiveEntry}` : row.path}#${row.trackIndex || 0}`,
     index: index + 1,
     path: row.path,
     rootPath: row.rootPath || fallbackGame.rootPath || state.rootPath,
@@ -898,7 +881,7 @@ function databaseRowsToPlaylistTracks(rows, games) {
     system: row.system || fallbackGame.system || "—",
     lengthLabel: row.playLengthMs > 0 ? uiApp.formatTime(Math.round(row.playLengthMs / 1000)) : "—",
     basePlaybackSeconds: row.playLengthMs > 0 ? row.playLengthMs / 1000 : 0,
-    metadataLoaded: true
+    metadataLoaded: Number(row.playLengthMs) > 0
   }));
 }
 
@@ -914,6 +897,7 @@ async function loadDatabaseGamesIntoPlaylist(games) {
   persistSettings();
   renderAll();
   uiApp.playback.preloadPlaylistAudio(state.playlist, state.selectedTrackId);
+  void hydratePlaylistMetadata();
 }
 
 async function activateDatabaseSelection() {
@@ -978,9 +962,12 @@ async function activateFocusedItem(focusTarget = document.activeElement) {
 }
 
 function renderSidebar() {
-  refs.sidebarFoldersButton.classList.toggle("is-selected", state.sidebarMode === "folders");
-  refs.sidebarDatabaseButton.classList.toggle("is-selected", state.sidebarMode === "database");
-  if (state.sidebarMode === "database") renderDatabaseGames();
+  const showDatabase = Boolean(state.sidebarQuery.trim()) || state.sidebarMode === "database";
+  const nextMode = state.sidebarMode === "database" ? "folders" : "database";
+  refs.sidebarViewToggleButton.title = nextMode === "database" ? "Show Database" : "Show Folders";
+  refs.sidebarViewToggleButton.setAttribute("aria-label", refs.sidebarViewToggleButton.title);
+  refs.sidebarViewToggleButton.querySelector("use")?.setAttribute("href", nextMode === "database" ? "#icon-database" : "#icon-folder-tree");
+  if (showDatabase) renderDatabaseGames();
   else renderTree();
 }
 
@@ -1700,6 +1687,7 @@ function renderAll() {
   refs.databaseUnlinkedTrackCount.textContent = maintenance ? String(maintenance.unlinkedTrackCount) : "—";
   refs.databaseCacheSummary.textContent = maintenance?.archiveCache ? formatArchiveCacheSummary(maintenance.archiveCache) : "—";
   refs.consoleViewCheckbox.checked = state.consoleViewEnabled;
+  refs.preferEmbeddedConsoleTagsCheckbox.checked = state.preferEmbeddedConsoleTags;
   refs.equalizerEnabledCheckbox.checked = state.equalizerEnabled;
   refs.equalizerToolbarButton.classList.toggle("is-selected", state.equalizerEnabled);
   refs.equalizerToolbarButton.setAttribute("aria-pressed", state.equalizerEnabled ? "true" : "false");
@@ -2058,6 +2046,23 @@ function setConsoleViewEnabled(enabled, broadcast = true) {
   renderAll();
 }
 
+async function setPreferEmbeddedConsoleTags(enabled) {
+  const previous = state.preferEmbeddedConsoleTags;
+  state.preferEmbeddedConsoleTags = Boolean(enabled);
+  persistSettings();
+  renderAll();
+  try {
+    await window.spcBoy?.configureConsoleTagPreference?.(state.preferEmbeddedConsoleTags);
+    await refreshDatabaseGamesForVisibleRoots();
+    renderSidebar();
+  } catch (error) {
+    state.preferEmbeddedConsoleTags = previous;
+    persistSettings();
+    renderAll();
+    throw error;
+  }
+}
+
 function commitFontSizeInput(rawValue) {
   const parsedValue = uiApp.parseNumericInput(rawValue);
   state.uiFontSizePt = uiApp.normalizeFontSize(parsedValue ?? state.uiFontSizePt);
@@ -2200,6 +2205,8 @@ async function bootstrap() {
   }
 
   loadSettings();
+  if (window.spcBoy?.isOptionsWindow) renderAll();
+  else await window.spcBoy?.configureConsoleTagPreference?.(state.preferEmbeddedConsoleTags);
   await window.spcBoy?.configureArchiveCache?.({
     enabled: state.archiveCacheEnabled,
     limitBytes: state.archiveCacheLimitBytes
@@ -2350,6 +2357,7 @@ uiApp.ui = {
   setSidebarWidth,
   setAccentColor,
   setConsoleViewEnabled,
+  setPreferEmbeddedConsoleTags,
   commitFontSizeInput,
   commitSidebarFontSizeInput,
   setSidebarTextColor,

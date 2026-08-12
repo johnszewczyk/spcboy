@@ -1,13 +1,13 @@
 const fs = require("fs").promises;
 const path = require("path");
-const { fastArchiveSignature, materializeArchiveEntryForScan, materializeArchiveEntriesForScan, scanScratchSummary, availableScratchBytes } = require("./archive-resolver");
+const { fastArchiveSignature, fastSourceSignature, materializeArchiveEntryForScan, materializeArchiveEntriesForScan, scanScratchSummary, availableScratchBytes } = require("./archive-resolver");
 const { indexIndexedTracks, reusableRecordsForArchive, reusableRecordsForSource, sourceKey } = require("./library-scan");
 const { routeForPath, routeForArchiveEntry } = require("./playback-core");
 const { createScanOutcome, formatScanOutcome, summarizeScanOutcomes } = require("./scanner-model");
 const { discoverPhysicalSources } = require("./scanner-discovery");
 const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./scanner-archive");
 
-const DEFAULT_SCAN_VERSION = 2;
+const DEFAULT_SCAN_VERSION = 3;
 const DEFAULT_SCAN_CONCURRENCY = 8;
 const DEFAULT_SCAN_SCRATCH_BUDGET_BYTES = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_SCRATCH_BYTES = 2 * 1024 * 1024 * 1024;
@@ -397,6 +397,7 @@ async function scanLibraryRoot({
         let stat;
         try {
           stat = await statForSource(source);
+          if (!source.sourceSignature) source.sourceSignature = await fastSourceSignature(source.path, stat);
         } catch (error) {
           const outcome = createScanOutcome({
             identity: sourceIdentity(resolvedRoot, source),

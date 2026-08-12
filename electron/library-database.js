@@ -31,6 +31,19 @@ const CONSOLE_TAG_NAMES = new Map([
   ["PC98", "NEC PC-98"], ["FMT", "FM Towns"], ["3DO", "Panasonic 3DO"], ["ARC", "Arcade"]
 ]);
 
+const CONSOLE_FOLDER_NAMES = new Map([
+  ...[...new Set(CONSOLE_TAG_NAMES.values())].map((name) => [name.toLowerCase(), name]),
+  ["playstation", "Sony PlayStation"], ["playstation 2", "Sony PlayStation 2"],
+  ["playstation 3", "Sony PlayStation 3"], ["sony playstation 4", "Sony PlayStation 4"],
+  ["sony playstation 5", "Sony PlayStation 5"], ["nintendo nes", "Nintendo Entertainment System"],
+  ["nintendo snes", "Super Nintendo"], ["microsoft msx", "Microsoft MSX"],
+  ["snk neo geo cd", "SNK Neo Geo CD"], ["atari 2600", "Atari 2600"],
+  ["atari 5200", "Atari 5200"], ["atari 7800", "Atari 7800"],
+  ["atari jaguar", "Atari Jaguar"], ["atari lynx", "Atari Lynx"],
+  ["commodore 64", "Commodore 64"], ["commodore amiga", "Commodore Amiga"],
+  ["bandai wonderswan", "Bandai WonderSwan"], ["bandai wonderswan color", "Bandai WonderSwan Color"]
+]);
+
 function sourcePathForRecord(record) {
   return String(record?.archivePath || record?.path || "");
 }
@@ -53,11 +66,20 @@ function consoleFromSourceTag(sourcePath) {
 
 function consoleFromParentFolder(record) {
   const folderPath = String(record?.folderPath || path.dirname(sourcePathForRecord(record)) || "");
-  return path.basename(folderPath).trim();
+  const parts = path.resolve(folderPath).split(path.sep).filter(Boolean);
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (isConsoleFolderName(parts[index])) return normalizeConsoleName(parts[index]);
+  }
+  return normalizeConsoleName(path.basename(folderPath).trim());
 }
 
 function isConsoleFolderName(value) {
-  return /(?:^|\s)(?:sony|playstation|nintendo|sega|nec|microsoft|xbox|panasonic|atari|arcade|commodore|amiga|msx|fm towns|pc-?98|wonder\s*swan|bandai)(?:\s|$)/i.test(String(value || ""));
+  return CONSOLE_FOLDER_NAMES.has(String(value || "").trim().toLowerCase());
+}
+
+function normalizeConsoleName(value) {
+  const text = String(value || "").trim();
+  return CONSOLE_FOLDER_NAMES.get(text.toLowerCase()) || text;
 }
 
 function usableMetadataValue(value) {
@@ -67,28 +89,31 @@ function usableMetadataValue(value) {
   return text && !path.isAbsolute(text) && !/^spcboy-(?:scan|playback)-scratch-/i.test(text) ? text : "";
 }
 
-function browserBucketsForRecord(record) {
+function browserBucketsForRecord(record, preferEmbeddedConsoleTags = false) {
   const sourcePath = sourcePathForRecord(record);
   const taggedConsole = consoleFromSourceTag(sourcePath);
   const parentConsole = consoleFromParentFolder(record);
   const archiveGame = record?.archivePath ? archiveTitleFromPath(record.archivePath) : "";
   return {
-    // An archive is the durable game container in JoshW-style libraries. Do
-    // not let a subset of decoder tags split one archive into several game
-    // leaves; loose files still use their inspected game tag when available.
-    game: archiveGame || usableMetadataValue(record?.metadata?.game) || archiveTitleFromPath(sourcePath) || parentConsole || "Untitled",
+    game: usableMetadataValue(record?.metadata?.game)
+      || archiveGame
+      || path.basename(String(record?.folderPath || "")).trim()
+      || archiveTitleFromPath(sourcePath)
+      || "Untitled",
     // JoshW-style collection labels are authoritative when present. Metadata
     // remains a fallback for loose files outside a console-organized library.
-    system: taggedConsole || (isConsoleFolderName(parentConsole) ? parentConsole : "") || usableMetadataValue(record?.metadata?.system) || parentConsole
+    system: preferEmbeddedConsoleTags
+      ? usableMetadataValue(record?.metadata?.system) || taggedConsole || (isConsoleFolderName(parentConsole) ? parentConsole : "") || parentConsole
+      : taggedConsole || (isConsoleFolderName(parentConsole) ? parentConsole : "") || usableMetadataValue(record?.metadata?.system) || parentConsole
   };
 }
 
-function browserGameForRecord(record) {
-  return browserBucketsForRecord(record).game;
+function browserGameForRecord(record, preferEmbeddedConsoleTags = false) {
+  return browserBucketsForRecord(record, preferEmbeddedConsoleTags).game;
 }
 
-function browserSystemForRecord(record) {
-  return browserBucketsForRecord(record).system;
+function browserSystemForRecord(record, preferEmbeddedConsoleTags = false) {
+  return browserBucketsForRecord(record, preferEmbeddedConsoleTags).system;
 }
 
 function displayLibraryRootPath(rootPath) {
@@ -207,6 +232,7 @@ class LibraryDatabase {
     this.atomicScanStartedAt = null;
     this.atomicScanInitialStorage = null;
     this.lastAtomicScanMetrics = null;
+    this.preferEmbeddedConsoleTags = false;
   }
 
   async close() {
@@ -586,6 +612,12 @@ class LibraryDatabase {
     return run(this.databasePath, "SELECT * FROM library_roots ORDER BY display_order, id;", true);
   }
 
+  async loadRoot(rootId) {
+    const id = Number(rootId);
+    if (!Number.isInteger(id) || id <= 0) return null;
+    return (await run(this.databasePath, `SELECT * FROM library_roots WHERE id=${sqlNumber(id)} LIMIT 1;`, true))[0] || null;
+  }
+
   async ensureRoot(rootPath) {
     const roots = await this.loadRoots();
     const existing = roots.find((root) => root.path === rootPath);
@@ -675,7 +707,7 @@ class LibraryDatabase {
             record.archiveEntry ? normalizeArchiveEntry(record.archiveEntry) : null,
             record.archiveSignature || null, record.sourceSignature || null,
             record.scanCompleted ? 1 : 0, Number(record.scanVersion) || 0,
-            browserGameForRecord(record), browserSystemForRecord(record), scanGeneration
+            browserGameForRecord(record, this.preferEmbeddedConsoleTags), browserSystemForRecord(record, this.preferEmbeddedConsoleTags), scanGeneration
           ]
         });
         if (record.metadata) {
@@ -763,6 +795,10 @@ class LibraryDatabase {
       // A tag may improve a game title, but must never turn PS1 into "SEGA".
       const browserGame = usableMetadataValue(metadata.game);
       statements.push(`UPDATE tracks SET browser_game=CASE WHEN ${sqlText(browserGame)} <> '' THEN ${sqlText(browserGame)} ELSE browser_game END WHERE ${activePredicate};`);
+      if (this.preferEmbeddedConsoleTags) {
+        const browserSystem = usableMetadataValue(metadata.system);
+        statements.push(`UPDATE tracks SET browser_system=CASE WHEN ${sqlText(browserSystem)} <> '' THEN ${sqlText(browserSystem)} ELSE browser_system END WHERE ${activePredicate};`);
+      }
       statements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) SELECT id, ${sqlText(metadata.title)}, ${sqlText(metadata.game)}, ${sqlText(metadata.artist)}, ${sqlText(metadata.system)}, ${sqlNumber(metadata.playLengthMs)}, ${sqlNumber(now)} FROM tracks WHERE ${activePredicate} ON CONFLICT(track_id) DO UPDATE SET title=excluded.title, game=excluded.game, artist=excluded.artist, system=excluded.system, play_length_ms=excluded.play_length_ms, metadata_scanned_at=excluded.metadata_scanned_at;`);
       statements.push(`DELETE FROM track_search WHERE rowid IN (SELECT id FROM tracks WHERE ${activePredicate});`);
       statements.push(`INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE ${activePredicate.replaceAll("tracks.", "t.")};`);
@@ -999,6 +1035,53 @@ class LibraryDatabase {
 
   async searchGames(query) {
     return this.loadGames(query);
+  }
+
+  async setPreferEmbeddedConsoleTags(enabled) {
+    const next = Boolean(enabled);
+    this.preferEmbeddedConsoleTags = next;
+    const key = "console-tag-source-v1";
+    const stored = (await run(this.databasePath, `SELECT value FROM library_schema_state WHERE key=${sqlText(key)};`, true))[0]?.value;
+    const nextValue = next ? "metadata" : "collection";
+    if (stored === nextValue) return next;
+
+    await runInSavepoint(this.databasePath, async () => {
+      let lastTrackId = 0;
+      while (true) {
+        const rows = await run(this.databasePath, `
+          SELECT t.id, t.folder_path AS folderPath, t.path, t.archive_path AS archivePath,
+                 m.game, m.system
+          FROM tracks t
+          LEFT JOIN track_metadata m ON m.track_id=t.id
+          WHERE t.id>${sqlNumber(lastTrackId)}
+          ORDER BY t.id
+          LIMIT 1000;
+        `, true);
+        if (!rows.length) break;
+        await runPreparedBatch(this.databasePath, rows.map((row) => ({
+          sql: "UPDATE tracks SET browser_game=?, browser_system=? WHERE id=?;",
+          params: [browserGameForRecord({
+            folderPath: row.folderPath,
+            path: row.path,
+            archivePath: row.archivePath,
+            metadata: { game: row.game || "", system: row.system || "" }
+          }, next), browserSystemForRecord({
+            folderPath: row.folderPath,
+            path: row.path,
+            archivePath: row.archivePath,
+            metadata: { game: row.game || "", system: row.system || "" }
+          }, next), Number(row.id)]
+        })));
+        lastTrackId = Number(rows.at(-1).id);
+      }
+      await run(this.databasePath, [
+        "DELETE FROM track_search;",
+        `INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id;`,
+        ...gameSidebarBucketStatements(),
+        `INSERT OR REPLACE INTO library_schema_state(key, value) VALUES(${sqlText(key)}, ${sqlText(nextValue)});`
+      ].join("\n"));
+    });
+    return next;
   }
 
   async searchBrowserEntries(rootPath, query) {

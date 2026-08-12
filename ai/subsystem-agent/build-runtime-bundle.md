@@ -10,6 +10,7 @@
 
 - The active desktop app is Electron.
 - `electron/main.js` is the process entry point configured by `package.json`.
+- `electron/main.js` acquires Electron's single-instance lock before initializing the library database or archive cache. A second launch focuses the existing main or Options window and exits.
 - `electron/native-audio-tools.js` owns native helper sessions, one-shot native/external inspection and PCM commands, and format-specific temporary aliases.
 - `electron/native-helper-client.js` owns the framed long-lived native-helper protocol and coalesces concurrent native-state reads before they reach the helper process.
 - `electron/preload.js` exposes the allowed IPC surface to the renderer.

@@ -1,37 +1,65 @@
-function createPlaylistReader({ fs, path, supportsPath, isSupportedArchivePath, discoverPhysicalSources, expandArchiveSources, archiveListConcurrency }) {
-  function playlistFromSources(sources, folderPath) {
+function createPlaylistReader({ fs, path, supportsPath, routeForPath = () => null, isSupportedArchivePath, discoverPhysicalSources, expandArchiveSources, materializeArchiveEntries, inspectTrackVariants, archiveListConcurrency }) {
+  function playlistTrack(source, folderPath, variant = null) {
+    const sourcePath = source.archiveEntry ? `${source.path}#${source.archiveEntry}` : source.path;
+    const sourceFilename = path.basename(source.archiveEntry || source.path);
+    const extension = path.extname(sourceFilename).toLowerCase();
+    const baseName = sourceFilename.replace(/\.[^.]+$/i, "");
+    const trackIndex = Number(variant?.trackIndex) || 0;
+    const trackCount = Math.max(1, Number(variant?.trackCount) || 1);
+    const inspection = variant?.inspection || null;
+    return {
+      id: `${sourcePath}#${trackIndex}`,
+      index: 0,
+      path: sourcePath,
+      trackIndex,
+      trackCount,
+      archivePath: source.archivePath,
+      archiveEntry: source.archiveEntry,
+      sourceFilename,
+      filename: `${sourceFilename}${trackCount > 1 ? ` [${trackIndex + 1}]` : ""}`,
+      displayName: `${baseName}${trackCount > 1 ? ` [${trackIndex + 1}]` : ""}`,
+      title: inspection?.metadata?.song || baseName,
+      game: inspection?.metadata?.game || path.basename(folderPath),
+      artist: inspection?.metadata?.author || "—",
+      system: inspection?.metadata?.system || (extension === ".spc" ? "SNES" : "SEGA"),
+      lengthLabel: inspection?.lengthLabel || "—",
+      basePlaybackSeconds: Number(inspection?.basePlaybackSeconds) || 0,
+      specialAudioKind: inspection?.specialAudioKind || null,
+      metadataLoaded: Boolean(inspection)
+    };
+  }
+
+  async function playlistFromSources(sources, folderPath) {
     const orderedSources = [...sources].sort((left, right) => {
       const leftName = path.basename(left.archiveEntry || left.path);
       const rightName = path.basename(right.archiveEntry || right.path);
       return leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: "base" });
     });
 
-    return orderedSources.map((source, index) => {
-      const sourcePath = source.archiveEntry ? `${source.path}#${source.archiveEntry}` : source.path;
-      const sourceFilename = path.basename(source.archiveEntry || source.path);
-      const extension = path.extname(sourceFilename).toLowerCase();
-      const baseName = sourceFilename.replace(/\.[^.]+$/i, "");
-      return {
-        id: `${sourcePath}#0`,
-        index: index + 1,
-        path: sourcePath,
-        trackIndex: 0,
-        trackCount: 1,
-        archivePath: source.archivePath,
-        archiveEntry: source.archiveEntry,
-        sourceFilename,
-        filename: sourceFilename,
-        displayName: baseName,
-        title: baseName,
-        game: path.basename(folderPath),
-        artist: "—",
-        system: extension === ".spc" ? "SNES" : "SEGA",
-        lengthLabel: "—",
-        basePlaybackSeconds: 0,
-        specialAudioKind: null,
-        metadataLoaded: false
-      };
-    });
+    const rows = [];
+    for (const source of orderedSources) {
+      const sourceName = source.archiveEntry || source.path;
+      if (!routeForPath(sourceName, { archiveMember: Boolean(source.archiveEntry) })?.supportsMultiTrack) {
+        rows.push(playlistTrack(source, folderPath));
+        continue;
+      }
+      if (source.archivePath) {
+        if (typeof materializeArchiveEntries !== "function") throw new Error("Archive multi-track playlist expansion requires materialization.");
+        const session = await materializeArchiveEntries(source.archivePath, [source.archiveEntry]);
+        try {
+          const materializedPath = session.paths.get(source.archiveEntry);
+          if (!materializedPath) throw new Error(`Could not materialize ${source.archiveEntry}.`);
+          const variants = await inspectTrackVariants(materializedPath, sourceName);
+          rows.push(...variants.map((variant) => playlistTrack(source, folderPath, variant)));
+        } finally {
+          await session.cleanup();
+        }
+      } else {
+        const variants = await inspectTrackVariants(source.path, sourceName);
+        rows.push(...variants.map((variant) => playlistTrack(source, folderPath, variant)));
+      }
+    }
+    return rows.map((track, index) => ({ ...track, index: index + 1 }));
   }
 
   async function readPlaylist(folderPath) {

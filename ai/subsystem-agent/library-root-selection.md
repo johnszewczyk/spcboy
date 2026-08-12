@@ -9,7 +9,8 @@
 ## Ownership and Lifecycle
 
 - Root library is chosen through a native Electron open dialog that accepts either a folder or a file path.
-- Database root addition uses a native folder-only multi-selection dialog and returns the resolved, de-duplicated root paths to the renderer.
+- Database root addition uses a main-process-owned, native folder-only multi-selection dialog. Main resolves and de-duplicates the selected paths, persists the roots directly, and returns the refreshed root list and counts; the renderer has no IPC operation that can add an arbitrary path.
+- Starting a database scan sends a configured root ID. Main resolves that ID through the database and rejects an unknown root instead of accepting a renderer-provided filesystem path.
 - Opening a file path loads its containing folder as the library root.
 - Renderer settings persist `rootPath` and `selectedFolderPath` in `localStorage`.
 - App bootstrap first tries to refresh the persisted root and selected folder.

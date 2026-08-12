@@ -163,7 +163,8 @@ test("scan service coordinates discovery, inspection, progress, and one database
       playbackMode: "native-session",
       scanConcurrency: 1,
       scanTimeoutSeconds: 60,
-      playbackSpeedMode: "native-tempo"
+      playbackSpeedMode: "native-tempo",
+      supportsMultiTrack: true
     },
     trackIndex: 0,
     specialAudioKind: null
@@ -172,6 +173,8 @@ test("scan service coordinates discovery, inspection, progress, and one database
   assert.equal(calls.replaced.records.length, 1);
   assert.equal(calls.replaced.records[0].metadata.title, "Song");
   assert.equal(calls.replaced.records[0].scanCompleted, true);
+  assert.match(calls.replaced.records[0].sourceSignature, /^[0-9a-f]{64}$/);
+  assert.equal(calls.replaced.records[0].scanVersion, 3);
   assert.equal(calls.began, true);
   assert.equal(calls.committed, true);
   assert.deepEqual(calls.discoveredSources, [{ rootId: 7, paths: [trackPath] }]);

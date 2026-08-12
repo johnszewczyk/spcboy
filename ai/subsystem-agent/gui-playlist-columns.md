@@ -12,7 +12,7 @@
 - `#` is the 1-based row index within the selected folder.
 - `File` is the actual filename including extension.
 - Metadata columns are seeded from lightweight defaults and hydrated later when richer inspection data arrives.
-- `Length` starts as `—` and is filled in after helper inspection.
+- `Length` starts as `—` only while inspection is pending. Folder/archive activation and database queue loading immediately schedule missing metadata, including SPC archive duration, without waiting for playback.
 - Playlist column order is draggable and persisted.
 - Column widths and visibility are persisted; headers can be resized, sorted, and right-clicked for the visibility menu.
 - A newly loaded playlist autosizes all visible columns to their longest rendered content; double-clicking a header seam autosizes only that column.

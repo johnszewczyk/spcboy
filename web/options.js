@@ -5,7 +5,7 @@
   const esc = (v) => String(v ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
   async function render() { const list = await api.databaseRoots(); roots.innerHTML = list.sort((a,b)=>a.path.localeCompare(b.path)).map(r => `<div class="library-root-row"><div class="library-root-main"><span>${esc(r.path)}</span></div><div class="library-root-meta">${r.last_scan_completed_at ? `<span>${r.last_scan_success_count||0} OK · ${r.last_scan_error_count||0} errors · ${r.last_scan_track_count||0} tracks</span><time>${esc(new Date(r.last_scan_completed_at*1000).toLocaleString())}</time>` : "Not scanned"}</div></div>`).join("") || '<div class="empty">No library folders configured.</div>'; }
   async function run(label, work) { active=true; cancel.disabled=false; status.textContent=label; try { await work(); await render(); status.textContent=`${label} complete.`; } catch(e) { status.textContent=e.message === "Library operation cancelled" ? `${label} cancelled.` : `${label} failed · ${e.message}`; } finally { active=false; cancel.disabled=true; } }
-  document.getElementById("add").onclick = async () => { const paths=await api.chooseLibraryPath(); if(paths?.length){for(const p of paths) await api.databaseAddRoot(p);await render();} };
+  document.getElementById("add").onclick = async () => { const result=await api.chooseLibraryPath(); if(result) await render(); };
   document.getElementById("scan").onclick = () => run("Scan", () => api.scanAllDatabaseRoots());
   document.getElementById("trim").onclick = () => run("Trim Missing", () => api.trimMissingDatabaseSources());
   cancel.onclick = () => api.cancelLibraryOperation();

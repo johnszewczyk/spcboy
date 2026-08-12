@@ -32,9 +32,8 @@
           <div class="sidebar-search-wrap">
             <input id="sidebar-search-input" class="sidebar-search-input" type="search" placeholder="Search" />
             <div class="sidebar-search-actions">
-              <div class="sidebar-view-actions" role="tablist" aria-label="Library views">
-              <button id="sidebar-folders-button" class="sidebar-mode-button" type="button" title="Folders" aria-label="Folders"><svg class="ui-icon" aria-hidden="true"><use href="#icon-folder-tree"></use></svg></button>
-              <button id="sidebar-database-button" class="sidebar-mode-button" type="button" title="Database" aria-label="Database"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg></button>
+              <div class="sidebar-view-actions" role="group" aria-label="Library view">
+              <button id="sidebar-view-toggle-button" class="sidebar-mode-button" type="button" title="Show Database" aria-label="Show Database"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg></button>
               </div>
               <div class="sidebar-fold-actions" role="group" aria-label="Fold current view">
                 <button id="database-expand-all-button" class="sidebar-mode-button database-tree-control" type="button" title="Expand all" aria-label="Expand all">+</button>
@@ -127,6 +126,7 @@
                 <div class="options-subpanel-title">Sidebar Options</div>
                 <label class="options-field"><span>Sidebar Width</span><span class="options-inline-trailing"><input id="sidebar-width-input" class="options-input" type="text" inputmode="numeric" value="20" aria-label="Sidebar width percent" /></span></label>
                 <label class="options-field options-inline-field"><span>Console View</span><input id="console-view-checkbox" type="checkbox" /></label>
+                <label class="options-field options-inline-field"><span class="options-inline-leading"><input id="prefer-embedded-console-tags-checkbox" type="checkbox" /><span class="options-checkbox-copy"><span>Prefer Embedded Console Tags</span><small>Use decoded console tags before recognized collection filenames and folders.</small></span></span></label>
                 <label class="options-field options-inline-field"><span>Path Counts</span><input id="sidebar-path-counts-checkbox" type="checkbox" checked /></label>
               </div>
               <div class="options-subpanel">

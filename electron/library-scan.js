@@ -27,7 +27,7 @@ function reusableRecordsForSource(source, stat, rows, scanVersion, backendId = n
   if (rows.some((row) => Number(row.fileSize) !== Number(stat.size))) return null;
   if (rows.some((row) => Math.abs(Number(row.modifiedAt) - Number(stat.mtimeMs / 1000)) > 0.001)) return null;
   if (source.archiveEntry && rows.some((row) => row.archiveSignature !== source.archiveSignature)) return null;
-  if (source.archiveEntry && rows.some((row) => row.sourceSignature !== source.sourceSignature)) return null;
+  if (rows.some((row) => row.sourceSignature !== source.sourceSignature)) return null;
 
   const expectedTrackCount = Number(rows[0].trackCount) || 1;
   if (rows.length !== expectedTrackCount) return null;

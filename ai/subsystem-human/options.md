@@ -38,13 +38,13 @@
 
 - Theme: combines the former Sidebar and Playlist appearance controls. The Options navigation is alphabetized as Database, Library, Playback, Routing, and Theme.
 - Theme / Application: Accent Color accepts standard CSS color syntax, including named colors, hexadecimal values, `rgb()`, `hsl()`, and modern color functions supported by the browser. Application Monospace Font changes app chrome text to the system monospace font.
-- Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, and Console View.
+- Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, Console View, and console-tag source. Collection tags/folders are preferred by default; Prefer Embedded Console Tags rewrites existing database groupings without a scan.
 - Theme / Playlist: independently adjust font size, font color, monospace mode, bold header font, and item spacing.
 - Console View: enables console-grouped database game headings in the main sidebar.
 
 ## Window
 
-- Options: opens in a native child 800 by 600 pixel window with alphabetized Database, Library, Playback, Routing, and Theme sections; it overlays SPCBoy's main window but does not stay above unrelated applications.
+- Options: opens in a native child 800 by 600 pixel window with alphabetized Database, Library, Playback, Routing, and Theme sections; focusing it raises only that requested window, avoiding focus churn among auxiliary windows.
 - Options: shows its dark native shell immediately and loads settings/library controls without enumerating the persisted raw folder tree.
 - Library paths: each row has an enable checkbox, scan-health color dot, existing folder name, successful-file total in parentheses, and Scan, Log, and Delete glyph buttons.
 - Scan Log: the header contains the pathname and all scan totals/status data; the body contains the selectable error-only log.

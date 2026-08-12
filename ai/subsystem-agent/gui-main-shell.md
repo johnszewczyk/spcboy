@@ -14,7 +14,7 @@
 - The main content area contains the explicitly activated folder/file playlist; restoring a large browser root does not eagerly enumerate it into the playlist.
 - The bottom bar holds previous, play-pause, next, a progress slider, and elapsed or total readout.
 - Options open in a separate native window rather than an inline drawer.
-- Options are a separate 800 by 600 native child BrowserWindow parented to the main window; it stays above SPCBoy's main window without system-level always-on-top behavior. The main, Options, and About windows are restored and raised together when the app is activated or any app window gains focus.
+- Options are a separate 800 by 600 native child BrowserWindow parented to the main window; it stays above SPCBoy's main window without system-level always-on-top behavior. Focus restoration raises only the requested live window, so focusing Options cannot recursively reorder every auxiliary window.
 - Theme owns persisted sidebar/playlist appearance controls and the shared CSS Accent Color. Accent values are validated by the renderer with `CSS.supports("color", value)` and broadcast to the other app window through the narrow appearance IPC surface.
 - Options navigation order is alphabetical: Database, Library, Playback, Routing, Theme.
 

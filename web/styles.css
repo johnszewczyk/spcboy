@@ -756,6 +756,12 @@ body.is-file-drag-over::after {
   color: var(--sidebar-text-color);
 }
 
+#long-play-button.is-selected .ui-icon,
+#repeat-button.is-selected .ui-icon,
+#repeat-button.is-selected::after {
+  color: var(--accent);
+}
+
 .options-overlay {
   position: fixed;
   inset: 0;

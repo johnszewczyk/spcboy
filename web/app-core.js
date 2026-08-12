@@ -36,6 +36,7 @@ const state = {
   folderSearchGeneration: 0,
   sidebarMode: "folders",
   consoleViewEnabled: true,
+  preferEmbeddedConsoleTags: false,
   databaseGames: [],
   databaseSearchGames: null,
   databaseSearchGeneration: 0,
@@ -122,8 +123,7 @@ const audioEngine = {
 
 const refs = {
   sidebarSearchInput: document.getElementById("sidebar-search-input"),
-  sidebarFoldersButton: document.getElementById("sidebar-folders-button"),
-  sidebarDatabaseButton: document.getElementById("sidebar-database-button"),
+  sidebarViewToggleButton: document.getElementById("sidebar-view-toggle-button"),
   databaseCollapseAllButton: document.getElementById("database-collapse-all-button"),
   databaseExpandAllButton: document.getElementById("database-expand-all-button"),
   treeRoot: document.getElementById("tree-root"),
@@ -183,6 +183,7 @@ const refs = {
   sidebarWidthInput: document.getElementById("sidebar-width-input"),
   accentColorInput: document.getElementById("accent-color-input"),
   consoleViewCheckbox: document.getElementById("console-view-checkbox"),
+  preferEmbeddedConsoleTagsCheckbox: document.getElementById("prefer-embedded-console-tags-checkbox"),
   uiItemSpacingInput: document.getElementById("ui-item-spacing-input"),
   spcForceLengthCheckbox: document.getElementById("spc-force-length-checkbox"),
   queuedSkipsCheckbox: document.getElementById("queued-skips-checkbox"),
@@ -249,6 +250,7 @@ function loadSettings() {
     state.selectedBrowserPath = parsed.selectedBrowserPath || state.selectedFolderPath;
     state.sidebarMode = parsed.sidebarMode === "database" ? "database" : "folders";
     state.consoleViewEnabled = Boolean(parsed.consoleViewEnabled);
+    state.preferEmbeddedConsoleTags = Boolean(parsed.preferEmbeddedConsoleTags);
     state.selectedDatabaseGameKey = parsed.selectedDatabaseGameKey || null;
     state.lastSelectedTrackId = parsed.lastSelectedTrackId || null;
     state.uiFontSizePt = normalizeFontSize(parsed.uiFontSizePt);
@@ -299,6 +301,7 @@ function persistSettings() {
     selectedBrowserPath: state.selectedBrowserPath,
     sidebarMode: state.sidebarMode,
     consoleViewEnabled: state.consoleViewEnabled,
+    preferEmbeddedConsoleTags: state.preferEmbeddedConsoleTags,
     selectedDatabaseGameKey: state.selectedDatabaseGameKey,
     lastSelectedTrackId: state.lastSelectedTrackId,
     uiFontSizePt: state.uiFontSizePt,

@@ -24,11 +24,14 @@ async function refreshLibraryRoots() {
 }
 
 async function addLibraryRoot() {
-  const rootPaths = await window.spcBoy.chooseLibraryPath();
-  if (!rootPaths?.length) return;
-  for (const rootPath of rootPaths) await window.spcBoy.databaseAddRoot(rootPath);
-  state.libraryScanStatus = `Added ${rootPaths.length} library path${rootPaths.length === 1 ? "" : "s"}. Select Scan Selected to begin.`;
-  await refreshLibraryRoots();
+  const result = await window.spcBoy.chooseLibraryPath();
+  if (!result) return;
+  state.libraryRoots = result.roots;
+  const count = Number(result.addedCount) || 0;
+  state.libraryScanStatus = count
+    ? `Added ${count} library path${count === 1 ? "" : "s"}. Select Scan Selected to begin.`
+    : "The selected library paths were already configured.";
+  renderAll();
 }
 
 async function selectAllLibraryRoots() {
@@ -42,7 +45,7 @@ async function scanOneLibraryRoot(root, deepScan = state.libraryDeepScanEnabled)
   state.libraryScanProgress = { completed: 0, total: 0, path: root.path };
   renderAll();
   try {
-    const result = await window.spcBoy.scanDatabaseRoot(root.path, deepScan);
+    const result = await window.spcBoy.scanDatabaseRoot(root.id, deepScan);
     state.libraryRoots = await window.spcBoy.databaseRoots();
     state.databaseGames = await window.spcBoy.databaseGames();
     state.databaseSearchGames = null;

@@ -64,6 +64,7 @@ test("invalidates reuse for changed or incomplete indexed sources", () => {
   assert.equal(reusableRecordsForSource(source, { size: 100, mtimeMs: 1000 }, [row], 2), null);
   assert.equal(reusableRecordsForSource(source, { size: 100, mtimeMs: 1000 }, [indexedRow({ metadataTrackId: null })], 1), null);
   assert.equal(reusableRecordsForSource(source, { size: 100, mtimeMs: 1000 }, [indexedRow({ scanCompleted: false })], 1), null);
+  assert.equal(reusableRecordsForSource({ ...source, sourceSignature: "new" }, { size: 100, mtimeMs: 1000 }, [indexedRow({ sourceSignature: "old" })], 1), null);
   assert.equal(reusableRecordsForSource({ ...source, archiveEntry: "song.nsf", archivePath: "/library/set.zip", archiveSignature: "new" }, { size: 100, mtimeMs: 1000 }, [indexedRow({ archivePath: "/library/set.zip", archiveEntry: "song.nsf", archiveSignature: "old" })], 1), null);
   assert.equal(reusableRecordsForSource(source, { size: 100, mtimeMs: 1000 }, [indexedRow({ backendId: "libgme" })], 1, "alternate"), null);
 });

@@ -8,19 +8,16 @@
 
 ## Ownership and Invariants
 
-- Sidebar search filters the already-built renderer tree rather than rescanning disk.
-- Search matches folder names and preserves ancestors of matching nodes.
-- A non-empty query forces visible expansion so matching subtrees are shown without extra clicks.
-- Folder View updates its local tree immediately, then debounces the indexed FTS descendant query. The main-process latest-request broker runs the active query and only the newest waiter, so pauses during rapid typing cannot build an obsolete SQLite queue.
-- Database mode preserves the shared query while switching views. It immediately filters loaded game buckets, then replaces that optimistic result with the FTS-complete matching buckets.
+- A non-empty query is a temporary third sidebar view and always searches indexed game buckets, regardless of the stored Folders/Database mode.
+- The renderer filters loaded game buckets immediately, then replaces that optimistic result with the debounced FTS-complete result from enabled roots. The latest-request broker runs the active query and only the newest waiter.
+- Console View groups the same results when enabled. Clearing the query restores the stored underlying view and its disclosure state.
 - Search itself does not interrupt playback.
 
 ## Critical Engineering Notes
 
-- Keep local sidebar filtering renderer-side. Indexed Folder-view descendant search stays behind its narrow preload/database boundary and is scoped to the active Folder root.
-- Folder indexed-search failures remain visible in the sidebar; do not reduce them to console-only diagnostics or an ordinary empty result.
+- Keep the optimistic game-bucket filter renderer-side and the complete query behind its narrow preload/database boundary.
 - Do not turn search into a filesystem rescan per keystroke.
-- Keep search behavior aligned with the renderer tree model.
+- Do not branch search results on the underlying Folders/Database mode.
 
 ## Files
 

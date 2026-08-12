@@ -8,6 +8,7 @@ const { promisify } = require("node:util");
 const {
   archivePlayableEntries,
   archivePlayableEntriesWithSignature,
+  listArchiveEntries,
   archiveType,
   materializeArchiveEntryForScan,
   materializeArchiveEntryForPlayback,
@@ -16,7 +17,8 @@ const {
   archiveCacheSummary,
   clearArchiveCache,
   pruneArchiveCache,
-  fastArchiveSignature,
+  recoverArchiveCachePartials,
+  fastSourceSignature,
   scanScratchSummary,
   recoverAbandonedScanScratchRoots
 } = require("../electron/archive-resolver");
@@ -24,6 +26,24 @@ const {
 const execFileAsync = promisify(execFile);
 const TAR_BINARY = process.env.SPCBOY_TAR_BINARY || "/usr/bin/bsdtar";
 const ZSTD_BINARY = process.env.SPCBOY_ZSTD_BINARY || "/opt/homebrew/bin/zstd";
+
+test("streams ZIP listings with explicit caps and preserves filename whitespace", async (t) => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-listing-limits-"));
+  t.after(() => fs.rm(fixtureRoot, { recursive: true, force: true }));
+  const members = [" leading.nsf", "trailing.nsf "];
+  for (const member of members) await fs.writeFile(path.join(fixtureRoot, member), member, "utf8");
+  const archivePath = path.join(fixtureRoot, "fixture.zip");
+  try {
+    await execFileAsync("/usr/bin/zip", ["-q", archivePath, ...members], { cwd: fixtureRoot });
+  } catch (error) {
+    return t.skip(`zip fixture tool unavailable: ${error.message}`);
+  }
+
+  assert.deepEqual(await listArchiveEntries(archivePath), members);
+  await assert.rejects(listArchiveEntries(archivePath, { maxEntries: 1 }), /1-entry safety limit/);
+  await assert.rejects(listArchiveEntries(archivePath, { maxEntryNameBytes: 8 }), /8-byte safety limit/);
+  await assert.rejects(listArchiveEntries(archivePath, { maxOutputBytes: 1 }), /listing-output safety limit/);
+});
 
 test("lists and concurrently materializes ZIP dependency-family members", async (t) => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-zip-fixture-"));
@@ -181,14 +201,20 @@ test("recovers abandoned scan scratch roots while retaining a live materializati
     const abandoned = path.join(fixtureRoot, "spcboy-scan-scratch-abandoned");
     await fs.mkdir(abandoned);
     await fs.writeFile(path.join(abandoned, "payload.bin"), Buffer.alloc(4096));
+    const foreignLive = path.join(fixtureRoot, "spcboy-scan-scratch-foreign-live");
+    await fs.mkdir(foreignLive);
+    await fs.writeFile(path.join(foreignLive, ".spcboy-owner.json"), JSON.stringify({ pid: process.pid, token: "fixture" }));
+    await fs.writeFile(path.join(foreignLive, "payload.bin"), Buffer.alloc(2048));
 
     const recovered = await recoverAbandonedScanScratchRoots();
     assert.equal(recovered.recoveredRootCount, 1);
     assert.equal(recovered.recoveredBytes, 4096);
     await fs.access(live.path);
+    await fs.access(foreignLive);
     await assert.rejects(fs.access(abandoned));
     assert.equal((await scanScratchSummary()).activeRootCount, 1);
     await live.cleanup();
+    await fs.rm(foreignLive, { recursive: true, force: true });
     assert.deepEqual(await scanScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
   } finally {
     if (previousScratchRoot === undefined) delete process.env.SPCBOY_SCAN_SCRATCH_ROOT;
@@ -377,6 +403,8 @@ test("reports and clears the managed durable archive cache", async (t) => {
     assert.equal(summary.rootPath, process.env.SPCBOY_ARCHIVE_CACHE_ROOT);
     assert.ok(summary.fileCount > 0);
     assert.ok(summary.byteCount > 0);
+    await assert.rejects(materializeZipEntry(archivePath, "missing.nsf"));
+    assert.equal((await archiveCacheSummary()).partialCount, 0);
     await clearArchiveCache();
     const cleared = await archiveCacheSummary();
     assert.equal(cleared.fileCount, 0);
@@ -386,6 +414,34 @@ test("reports and clears the managed durable archive cache", async (t) => {
     else process.env.SPCBOY_ARCHIVE_CACHE_ROOT = previousCacheRoot;
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
+});
+
+test("startup cache recovery removes stale temporary files and incomplete dependency roots", async (t) => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-cache-recovery-"));
+  const previousCacheRoot = process.env.SPCBOY_ARCHIVE_CACHE_ROOT;
+  process.env.SPCBOY_ARCHIVE_CACHE_ROOT = path.join(fixtureRoot, "managed-cache");
+  t.after(async () => {
+    if (previousCacheRoot === undefined) delete process.env.SPCBOY_ARCHIVE_CACHE_ROOT;
+    else process.env.SPCBOY_ARCHIVE_CACHE_ROOT = previousCacheRoot;
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  });
+  await fs.mkdir(process.env.SPCBOY_ARCHIVE_CACHE_ROOT, { recursive: true });
+  const partialFile = path.join(process.env.SPCBOY_ARCHIVE_CACHE_ROOT, "track.nsf.tmp-1-fixture");
+  const partialRoot = path.join(process.env.SPCBOY_ARCHIVE_CACHE_ROOT, "usf-partial");
+  const completeRoot = path.join(process.env.SPCBOY_ARCHIVE_CACHE_ROOT, "usf-complete");
+  await fs.writeFile(partialFile, Buffer.alloc(1024));
+  await fs.mkdir(partialRoot);
+  await fs.writeFile(path.join(partialRoot, "member.usf"), Buffer.alloc(2048));
+  await fs.mkdir(completeRoot);
+  await fs.writeFile(path.join(completeRoot, ".complete"), "complete");
+  await fs.writeFile(path.join(completeRoot, "member.usf"), "valid");
+
+  const recovery = await recoverArchiveCachePartials();
+  assert.equal(recovery.recoveredPartialCount, 2);
+  assert.equal(recovery.recoveredBytes, 3072);
+  await assert.rejects(fs.access(partialFile));
+  await assert.rejects(fs.access(partialRoot));
+  await fs.access(completeRoot);
 });
 
 test("cache pruning retains a protected playback lease and removes older entries", async () => {
@@ -438,19 +494,18 @@ test("cache-off playback materialization is disposable", async (t) => {
   }
 });
 
-test("fast archive signatures detect same-size content changes", async () => {
+test("fast source signatures detect same-size middle-only content changes", async () => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-fast-signature-"));
   try {
     const archivePath = path.join(fixtureRoot, "archive.bin");
     await fs.writeFile(archivePath, Buffer.alloc(131072, 0x41));
-    const first = await fastArchiveSignature(archivePath);
     const stat = await fs.stat(archivePath);
+    const first = await fastSourceSignature(archivePath, stat);
     const replacement = Buffer.alloc(131072, 0x41);
-    replacement[0] = 0x42;
-    replacement[replacement.length - 1] = 0x43;
+    replacement[Math.floor(replacement.length / 2)] = 0x42;
     await fs.writeFile(archivePath, replacement);
     await fs.utimes(archivePath, stat.atime, stat.mtime);
-    const second = await fastArchiveSignature(archivePath);
+    const second = await fastSourceSignature(archivePath, stat);
     assert.notEqual(first, second);
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });

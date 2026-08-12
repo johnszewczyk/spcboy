@@ -10,6 +10,7 @@
 
 - The sidebar tree is a lazy file browser: the current root is the top-level node, folders load their immediate children when expanded, and supported files appear as file nodes beneath their parent.
 - Opening or dropping a path explicitly selects the Folders view and clears a persisted Database-view selection so the raw folder browser is visible.
+- One sidebar toolbar button toggles the stored Folders/Database mode and changes its icon to the destination view. A non-empty search remains visually authoritative until cleared.
 - The Folders snapshot enumerates immediate directories and supported files without metadata inspection; selecting a folder for activation lists only its direct supported files and archive members.
 - Hidden dot-folders are skipped.
 - A single click on a folder selects and toggles only its disclosure state. A single click on a final leaf file/archive replaces the playlist with that leaf's playable content, without starting playback.
@@ -24,6 +25,7 @@
 - The renderer auto-expands ancestors of the selected folder and keeps it scrolled into view.
 - The sidebar/playlist boundary is a 1px `rgb(30 30 30)` drag handle with a wider invisible hit target. Dragging updates the CSS width directly; it persists on release without rebuilding the sidebar or playlist.
 - Main-window startup and raw-tree refresh restore browser state without constructing a playlist. Playlist/archive enumeration is reserved for explicit folder/file activation, keeping large roots from blocking the initial UI.
+- Direct NSF, GBS, AY, HES, KSS, NSFE, and SAP activation enumerates internal tracks before publishing the playlist; this is structural enumeration, not background display-only metadata hydration.
 
 ## Critical Engineering Notes
 

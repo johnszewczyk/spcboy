@@ -57,6 +57,8 @@ test("persists scan fingerprints and archive signatures", async () => {
     const database = new LibraryDatabase(path.join(fixtureRoot, "Library.sqlite"));
     await database.initialize();
     const root = await database.ensureRoot(path.join(fixtureRoot, "library"));
+    assert.deepEqual(await database.loadRoot(root.id), root);
+    assert.equal(await database.loadRoot("not-an-id"), null);
     await database.replaceTracks(root.id, [{
       folderPath: path.join(fixtureRoot, "library"),
       path: `${fixtureRoot}/set.zip#song.nsf`,
@@ -444,6 +446,43 @@ test("normalizes JoshW archive names and console tags, and keeps Folder and Data
     const folderEntries = await database.searchBrowserEntries(rootPath, "silent hill");
     assert.equal(folderEntries.length, 1);
     assert.deepEqual(await database.searchGames("silent hill sony"), games);
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("switches console grouping between collection folders and embedded tags without rescanning", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-console-source-"));
+  try {
+    const database = new LibraryDatabase(path.join(fixtureRoot, "Library.sqlite"));
+    await database.initialize();
+    const rootPath = path.join(fixtureRoot, "audio", "JoshW");
+    const root = await database.ensureRoot(rootPath);
+    const folderPath = path.join(rootPath, "Sony PlayStation", "Castlevania - Symphony of the Night");
+    const trackPath = path.join(folderPath, "track.minipsf");
+    await database.replaceTracks(root.id, [{
+      folderPath,
+      path: trackPath,
+      filename: "track.minipsf",
+      extension: ".minipsf",
+      trackIndex: 0,
+      trackCount: 1,
+      fileSize: 1,
+      modifiedAt: 1,
+      scanCompleted: true,
+      scanVersion: 1,
+      metadata: { title: "Track", game: "Castlevania", artist: "", system: "Playstation", playLengthMs: 1000 }
+    }], { fileCount: 1, successCount: 1 });
+
+    assert.deepEqual((await database.loadGames()).map((game) => ({ name: game.name, system: game.system })), [
+      { name: "Castlevania", system: "Sony PlayStation" }
+    ]);
+    await database.setPreferEmbeddedConsoleTags(true);
+    assert.deepEqual((await database.loadGames()).map((game) => ({ name: game.name, system: game.system })), [
+      { name: "Castlevania", system: "Playstation" }
+    ]);
+    await database.setPreferEmbeddedConsoleTags(false);
+    assert.equal((await database.loadGames())[0].system, "Sony PlayStation");
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }

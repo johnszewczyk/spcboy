@@ -9,7 +9,7 @@
 
 ## Controls
 
-- Controls: previous, play-pause, next, Long Play loop glyph, and progress seeking.
+- Controls: previous, play-pause, next, Long Play loop glyph, Repeat, and progress seeking. Active Long Play and Repeat glyphs use the configured accent color.
 - Controls: double-click and Enter activate tracks.
 - Controls: keyboard shortcuts and Media Session transport when supported.
 

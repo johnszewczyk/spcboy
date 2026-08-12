@@ -5,6 +5,7 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libgme-tool",
     extensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap", ".spc"]),
+    multiTrackExtensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap"]),
     playbackSpeedMode: "native-tempo",
     playbackSpeedExtensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap", ".spc"]),
     scanConcurrency: 1,
@@ -158,7 +159,8 @@ function routeForPath(filePath, { archiveMember = false, preferredBackendId = nu
     playbackMode: backend.playbackMode,
     scanConcurrency: backend.scanConcurrency || 1,
     scanTimeoutSeconds: backend.scanTimeoutSeconds || 60,
-    playbackSpeedMode: backend.playbackSpeedExtensions?.includes(extension) ? backend.playbackSpeedMode || null : null
+    playbackSpeedMode: backend.playbackSpeedExtensions?.includes(extension) ? backend.playbackSpeedMode || null : null,
+    supportsMultiTrack: Boolean(backend.multiTrackExtensions?.includes(extension))
   });
 }
 
