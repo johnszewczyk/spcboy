@@ -30,8 +30,8 @@
 - `game_sidebar_buckets` is the durable root-scoped Database sidebar projection. An unfiltered sidebar read uses this projection rather than grouping every track; FTS search resolves matching bucket identities and joins them back to the projection for counts.
 - SQLite schema additions inspect `PRAGMA table_info` before each `ALTER TABLE`; an unexpected migration error is fatal and must not be caught as though the column already existed.
 - Database sidebar/search and game activation use query-only worker connections separate from the serialized writer. WAL preserves a committed snapshot, and `latest-request-coalescer.js` discards superseded pending searches so stale typing cannot block the final query or activation.
-- `tracks.browser_game` and `tracks.browser_system` store the normalized sidebar bucket at scan time. Game tags win when present; otherwise an archive uses its archive filename and a loose source uses its immediate parent folder. Absolute materialization paths and scratch-directory names are never visible identity.
-- Console identity uses a recognized terminal filename tag (for example `[PS1]`) or the nearest console-named ancestor by default. `Prefer Embedded Console Tags` reverses that priority. Existing rows are rewritten in bounded 1,000-row batches inside one savepoint without rescanning, extracting, or decoding audio; the game projection and FTS index publish with the preference marker.
+- `tracks.browser_game` and `tracks.browser_system` store the normalized sidebar bucket at scan time and execute the shared CocoaSpice/SPCBoy identity contract. Game tags win when present; otherwise an archive uses its outer filename without a recognized terminal console tag and a loose source uses its immediate parent folder. Unrecognized title suffixes remain intact. Absolute materialization paths, scratch-directory names, and unknown folders are never visible console identity.
+- Console identity uses a recognized terminal filename tag (for example `[PS1]`) or the nearest console-named ancestor by default. `Prefer Embedded Console Tags` reverses that priority, and known aliases normalize after selection. Existing rows are rewritten in bounded 1,000-row batches inside one savepoint without rescanning, extracting, or decoding audio; browser-buckets-v4 preserves the stored preference while republishing the game projection and FTS index.
 - Indexed tracks persist special payload routing, including Nintendo DS `SWAV` and raw 22,050 Hz PCM WAV recognition, so database playback retains the scanner's content-based decoder choice.
 - Scanning expands libgme multi-track files into one record per internal track, preserving `track_index` and `track_count` for database loading and playback.
 - The existing folder-tree browser remains the active main sidebar; Options / Library is limited to root selection and scan controls. Options / Database owns database statistics and maintenance actions.
@@ -54,6 +54,8 @@
 - [latest-request-coalescer.js](/Users/john/Downloads/Code/SPCBoy/electron/latest-request-coalescer.js)
 - [main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [playlist-archive-metadata.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-archive-metadata.js)
+- [Cross-app identity fixture](/Users/john/Downloads/Code/SPCBoy/test/cross-app-library-identity-v1.json)
+- [Sister-app conformance contract](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-conformance.md)
 - [app-library.js](/Users/john/Downloads/Code/SPCBoy/web/app-library.js)
 - [playback-core.js](/Users/john/Downloads/Code/SPCBoy/electron/playback-core.js)
 - [preload.js](/Users/john/Downloads/Code/SPCBoy/electron/preload.js)

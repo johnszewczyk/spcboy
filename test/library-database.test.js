@@ -161,8 +161,8 @@ test("keeps same game and system separate for each library root", async () => {
     const games = await database.loadGames();
     assert.equal(games.length, 2);
     assert.deepEqual(games.map((game) => game.displayName), [
-      "Final Fight (SNES • JoshW)",
-      "Final Fight (SNES • SNESMusicOrg)"
+      "Final Fight (Super Nintendo • JoshW)",
+      "Final Fight (Super Nintendo • SNESMusicOrg)"
     ]);
 
     const joshGame = games.find((game) => game.rootId === joshRoot.id);
@@ -479,10 +479,61 @@ test("switches console grouping between collection folders and embedded tags wit
     ]);
     await database.setPreferEmbeddedConsoleTags(true);
     assert.deepEqual((await database.loadGames()).map((game) => ({ name: game.name, system: game.system })), [
-      { name: "Castlevania", system: "Playstation" }
+      { name: "Castlevania", system: "Sony PlayStation" }
     ]);
     await database.setPreferEmbeddedConsoleTags(false);
     assert.equal((await database.loadGames())[0].system, "Sony PlayStation");
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("browser bucket v4 migration preserves preference and republishes sidebar and search identity", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-browser-v4-"));
+  const databasePath = path.join(fixtureRoot, "Library.sqlite");
+  try {
+    let database = new LibraryDatabase(databasePath);
+    await database.initialize();
+    const rootPath = path.join(fixtureRoot, "JoshW");
+    const root = await database.ensureRoot(rootPath);
+    const archivePath = path.join(rootPath, "Unsorted", "Castlevania [PS2].tzst");
+    await database.replaceTracks(root.id, [{
+      folderPath: path.dirname(archivePath),
+      path: `${archivePath}#Castlevania.nsf`,
+      filename: "Castlevania.nsf",
+      extension: ".nsf",
+      trackIndex: 0,
+      trackCount: 1,
+      fileSize: 1,
+      modifiedAt: 1,
+      archivePath,
+      archiveEntry: "Castlevania.nsf",
+      scanCompleted: true,
+      scanVersion: 1,
+      metadata: { title: "Theme", game: "", artist: "", system: "Nintendo DS", playLengthMs: 1000 }
+    }], { fileCount: 1, successCount: 1 });
+    await database.setPreferEmbeddedConsoleTags(true);
+    await database.close();
+
+    const legacy = new SqliteWorkerClient(databasePath);
+    await legacy.execute(`
+      UPDATE tracks SET browser_game='Wrong', browser_system='Wrong';
+      UPDATE game_sidebar_buckets SET browser_game='Wrong', browser_system='Wrong';
+      UPDATE track_search SET content='stale';
+      DELETE FROM library_schema_state WHERE key='browser-buckets-v4';
+    `);
+    await legacy.close();
+
+    database = new LibraryDatabase(databasePath);
+    await database.initialize();
+    assert.equal(database.preferEmbeddedConsoleTags, true);
+    assert.deepEqual((await database.loadGames()).map(({ name, system, trackCount }) => ({ name, system, trackCount })), [
+      { name: "Castlevania", system: "Nintendo DS", trackCount: 1 }
+    ]);
+    assert.deepEqual((await database.searchGames("castlevania nintendo")).map(({ name, system }) => ({ name, system })), [
+      { name: "Castlevania", system: "Nintendo DS" }
+    ]);
+    await database.close();
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }

@@ -1,0 +1,138 @@
+{
+  "contract": "cocoaspice-spcboy-library-identity",
+  "version": 1,
+  "cases": [
+    {
+      "id": "collection-folder-alias-normalizes",
+      "sourcePath": "/Library/JoshW/Playstation/Castlevania/track.psf",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": null,
+      "metadata": { "game": "Castlevania", "system": "Playstation" },
+      "route": { "pluginID": "play-psf", "formatExtension": "psf" },
+      "expected": {
+        "collection": { "game": "Castlevania", "system": "Sony PlayStation" },
+        "embedded": { "game": "Castlevania", "system": "Sony PlayStation" }
+      }
+    },
+    {
+      "id": "archive-console-tag-supplies-system-and-is-not-title",
+      "sourcePath": "/Library/JoshW/Unsorted/Castlevania - Curse of Darkness [PS2].tar.zst",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": "BGM/01.adx",
+      "metadata": { "game": "", "system": "" },
+      "route": { "pluginID": "vgmstream", "formatExtension": "adx" },
+      "expected": {
+        "collection": { "game": "Castlevania - Curse of Darkness", "system": "Sony PlayStation 2" },
+        "embedded": { "game": "Castlevania - Curse of Darkness", "system": "Sony PlayStation 2" }
+      }
+    },
+    {
+      "id": "non-console-title-suffix-is-preserved",
+      "sourcePath": "/Library/JoshW/Sony PlayStation/Game [USA].zip",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": "track.psf",
+      "metadata": { "game": "", "system": "" },
+      "route": { "pluginID": "play-psf", "formatExtension": "psf" },
+      "expected": {
+        "collection": { "game": "Game [USA]", "system": "Sony PlayStation" },
+        "embedded": { "game": "Game [USA]", "system": "Sony PlayStation" }
+      }
+    },
+    {
+      "id": "loose-track-uses-parent-game-folder",
+      "sourcePath": "/Library/JoshW/Sony PlayStation 2/Castlevania - Lament of Innocence/track.psf2",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": null,
+      "metadata": { "game": "", "system": "" },
+      "route": { "pluginID": "play-psf", "formatExtension": "psf2" },
+      "expected": {
+        "collection": { "game": "Castlevania - Lament of Innocence", "system": "Sony PlayStation 2" },
+        "embedded": { "game": "Castlevania - Lament of Innocence", "system": "Sony PlayStation 2" }
+      }
+    },
+    {
+      "id": "console-source-preference-resolves-conflict",
+      "sourcePath": "/Library/JoshW/Sony PlayStation/Mystery Game/track.psf",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": null,
+      "metadata": { "game": "Metadata Game", "system": "Nintendo DS" },
+      "route": { "pluginID": "play-psf", "formatExtension": "psf" },
+      "expected": {
+        "collection": { "game": "Metadata Game", "system": "Sony PlayStation" },
+        "embedded": { "game": "Metadata Game", "system": "Nintendo DS" }
+      }
+    },
+    {
+      "id": "filename-console-tag-precedes-console-folder",
+      "sourcePath": "/Library/JoshW/Sony PlayStation/Mystery Game [PS2].zip",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": "track.adx",
+      "metadata": { "game": "", "system": "Nintendo DS" },
+      "route": { "pluginID": "vgmstream", "formatExtension": "adx" },
+      "expected": {
+        "collection": { "game": "Mystery Game", "system": "Sony PlayStation 2" },
+        "embedded": { "game": "Mystery Game", "system": "Nintendo DS" }
+      }
+    },
+    {
+      "id": "nested-format-folder-does-not-mask-console",
+      "sourcePath": "/Library/JoshW/Sega Saturn/Panzer Dragoon/VGM/track.genh",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": null,
+      "metadata": { "game": "Panzer Dragoon", "system": "3DO" },
+      "route": { "pluginID": "vgmstream", "formatExtension": "genh" },
+      "expected": {
+        "collection": { "game": "Panzer Dragoon", "system": "Sega Saturn" },
+        "embedded": { "game": "Panzer Dragoon", "system": "3DO" }
+      }
+    },
+    {
+      "id": "unknown-folder-is-not-invented-as-console",
+      "sourcePath": "/Library/Misc/Uncatalogued Game/track.spc",
+      "rootPath": "/Library/Misc",
+      "archiveEntry": null,
+      "metadata": { "game": "", "system": "" },
+      "route": { "pluginID": "gme", "formatExtension": "spc" },
+      "expected": {
+        "collection": { "game": "Uncatalogued Game", "system": "" },
+        "embedded": { "game": "Uncatalogued Game", "system": "" }
+      }
+    },
+    {
+      "id": "console-looking-ancestor-outside-root-is-ignored",
+      "sourcePath": "/Library/Sony PlayStation/Collections/Uncatalogued Game/track.spc",
+      "rootPath": "/Library/Sony PlayStation/Collections",
+      "archiveEntry": null,
+      "metadata": { "game": "", "system": "" },
+      "route": { "pluginID": "gme", "formatExtension": "spc" },
+      "expected": {
+        "collection": { "game": "Uncatalogued Game", "system": "" },
+        "embedded": { "game": "Uncatalogued Game", "system": "" }
+      }
+    },
+    {
+      "id": "snes-folder-and-embedded-tag-share-one-canonical-name",
+      "sourcePath": "/Library/JoshW/Nintendo SNES/Chrono Trigger/track.spc",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": null,
+      "metadata": { "game": "Chrono Trigger", "system": "SNES" },
+      "route": { "pluginID": "gme", "formatExtension": "spc" },
+      "expected": {
+        "collection": { "game": "Chrono Trigger", "system": "Super Nintendo" },
+        "embedded": { "game": "Chrono Trigger", "system": "Super Nintendo" }
+      }
+    },
+    {
+      "id": "nes-filename-tag-and-embedded-tag-share-one-canonical-name",
+      "sourcePath": "/Library/JoshW/Unsorted/Castlevania [NES].tzst",
+      "rootPath": "/Library/JoshW",
+      "archiveEntry": "Castlevania.nsf",
+      "metadata": { "game": "", "system": "NES" },
+      "route": { "pluginID": "gme", "formatExtension": "nsf" },
+      "expected": {
+        "collection": { "game": "Castlevania", "system": "Nintendo Entertainment System" },
+        "embedded": { "game": "Castlevania", "system": "Nintendo Entertainment System" }
+      }
+    }
+  ]
+}

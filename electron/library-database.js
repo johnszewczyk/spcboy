@@ -28,7 +28,7 @@ const CONSOLE_TAG_NAMES = new Map([
   ["SAT", "Sega Saturn"], ["DC", "Sega Dreamcast"], ["GG", "Sega Game Gear"],
   ["PCE", "NEC PC Engine"], ["TG16", "NEC TurboGrafx-16"], ["PCFX", "NEC PC-FX"],
   ["XBOX", "Microsoft Xbox"], ["X360", "Microsoft Xbox 360"], ["XONE", "Microsoft Xbox One"],
-  ["PC98", "NEC PC-98"], ["FMT", "FM Towns"], ["3DO", "Panasonic 3DO"], ["ARC", "Arcade"]
+  ["PC98", "NEC PC-98"], ["FMT", "FM Towns"], ["3DO", "3DO"], ["ARC", "Arcade"]
 ]);
 
 const CONSOLE_FOLDER_NAMES = new Map([
@@ -37,6 +37,7 @@ const CONSOLE_FOLDER_NAMES = new Map([
   ["playstation 3", "Sony PlayStation 3"], ["sony playstation 4", "Sony PlayStation 4"],
   ["sony playstation 5", "Sony PlayStation 5"], ["nintendo nes", "Nintendo Entertainment System"],
   ["nintendo snes", "Super Nintendo"], ["microsoft msx", "Microsoft MSX"],
+  ["3do", "3DO"],
   ["snk neo geo cd", "SNK Neo Geo CD"], ["atari 2600", "Atari 2600"],
   ["atari 5200", "Atari 5200"], ["atari 7800", "Atari 7800"],
   ["atari jaguar", "Atari Jaguar"], ["atari lynx", "Atari Lynx"],
@@ -50,8 +51,11 @@ function sourcePathForRecord(record) {
 
 function archiveTitleFromPath(sourcePath) {
   let title = path.basename(String(sourcePath || ""));
-  title = title.replace(/\.(?:tar\.(?:zst|gz|bz2|xz)|zip|7z|rar|rsn)$/i, "");
-  title = title.replace(/\s*\[[^\]]+\]\s*$/, "").trim();
+  title = title.replace(/\.(?:tar\.(?:zst|zstd|gz|bz2|xz)|tzst|zip|7z|rar|rsn)$/i, "");
+  const terminalTag = title.match(/\s*\[([^\]]+)\]\s*$/);
+  if (terminalTag && CONSOLE_TAG_NAMES.has(String(terminalTag[1] || "").trim().toUpperCase())) {
+    title = title.slice(0, terminalTag.index).trim();
+  }
   return title;
 }
 
@@ -65,12 +69,16 @@ function consoleFromSourceTag(sourcePath) {
 }
 
 function consoleFromParentFolder(record) {
-  const folderPath = String(record?.folderPath || path.dirname(sourcePathForRecord(record)) || "");
-  const parts = path.resolve(folderPath).split(path.sep).filter(Boolean);
+  const folderPath = path.resolve(String(record?.folderPath || path.dirname(sourcePathForRecord(record)) || ""));
+  const rootPath = record?.rootPath ? path.resolve(String(record.rootPath)) : "";
+  if (rootPath && folderPath !== rootPath && !folderPath.startsWith(`${rootPath}${path.sep}`)) return "";
+  if (rootPath && isConsoleFolderName(path.basename(rootPath))) return normalizeConsoleName(path.basename(rootPath));
+  const relativePath = rootPath ? path.relative(rootPath, folderPath) : folderPath;
+  const parts = relativePath.split(path.sep).filter(Boolean);
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     if (isConsoleFolderName(parts[index])) return normalizeConsoleName(parts[index]);
   }
-  return normalizeConsoleName(path.basename(folderPath).trim());
+  return "";
 }
 
 function isConsoleFolderName(value) {
@@ -79,7 +87,7 @@ function isConsoleFolderName(value) {
 
 function normalizeConsoleName(value) {
   const text = String(value || "").trim();
-  return CONSOLE_FOLDER_NAMES.get(text.toLowerCase()) || text;
+  return CONSOLE_TAG_NAMES.get(text.toUpperCase()) || CONSOLE_FOLDER_NAMES.get(text.toLowerCase()) || text;
 }
 
 function usableMetadataValue(value) {
@@ -93,6 +101,7 @@ function browserBucketsForRecord(record, preferEmbeddedConsoleTags = false) {
   const sourcePath = sourcePathForRecord(record);
   const taggedConsole = consoleFromSourceTag(sourcePath);
   const parentConsole = consoleFromParentFolder(record);
+  const metadataConsole = normalizeConsoleName(usableMetadataValue(record?.metadata?.system));
   const archiveGame = record?.archivePath ? archiveTitleFromPath(record.archivePath) : "";
   return {
     game: usableMetadataValue(record?.metadata?.game)
@@ -103,8 +112,8 @@ function browserBucketsForRecord(record, preferEmbeddedConsoleTags = false) {
     // JoshW-style collection labels are authoritative when present. Metadata
     // remains a fallback for loose files outside a console-organized library.
     system: preferEmbeddedConsoleTags
-      ? usableMetadataValue(record?.metadata?.system) || taggedConsole || (isConsoleFolderName(parentConsole) ? parentConsole : "") || parentConsole
-      : taggedConsole || (isConsoleFolderName(parentConsole) ? parentConsole : "") || usableMetadataValue(record?.metadata?.system) || parentConsole
+      ? metadataConsole || taggedConsole || parentConsole
+      : taggedConsole || parentConsole || metadataConsole
   };
 }
 
@@ -527,7 +536,9 @@ class LibraryDatabase {
         COMMIT;
       `);
     }
-    const browserBucketsNormalized = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='browser-buckets-v3';", true);
+    const consoleSource = (await run(this.databasePath, "SELECT value FROM library_schema_state WHERE key='console-tag-source-v1';", true))[0]?.value;
+    this.preferEmbeddedConsoleTags = consoleSource === "metadata";
+    const browserBucketsNormalized = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='browser-buckets-v4';", true);
     if (!browserBucketsNormalized.length) await this.rebuildBrowserBuckets();
     await this.repairInternalCacheGameNames();
     const searchIndexBuilt = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='track-search-v1';", true);
@@ -559,14 +570,11 @@ class LibraryDatabase {
 
   async rebuildBrowserBuckets() {
     const rows = await run(this.databasePath, `
-      SELECT t.id, t.folder_path AS folderPath, t.path, t.archive_path AS archivePath,
+      SELECT t.id, t.folder_path AS folderPath, t.path, t.archive_path AS archivePath, r.path AS rootPath,
              COALESCE(m.game, '') AS game, COALESCE(m.system, '') AS system
-      FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id;
+      FROM tracks t JOIN library_roots r ON r.id=t.root_id
+      LEFT JOIN track_metadata m ON m.track_id=t.id;
     `, true);
-    if (!rows.length) {
-      await run(this.databasePath, "INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('browser-buckets-v3', 'complete');");
-      return;
-    }
     await run(this.databasePath, "CREATE TEMP TABLE browser_bucket_rebuild(track_id INTEGER PRIMARY KEY, browser_game TEXT NOT NULL, browser_system TEXT NOT NULL);");
     try {
       for (let index = 0; index < rows.length; index += 1000) {
@@ -575,8 +583,9 @@ class LibraryDatabase {
             folderPath: row.folderPath,
             path: row.path,
             archivePath: row.archivePath,
+            rootPath: row.rootPath,
             metadata: { game: row.game, system: row.system }
-          });
+          }, this.preferEmbeddedConsoleTags);
           return `(${sqlNumber(row.id)}, ${sqlText(buckets.game)}, ${sqlText(buckets.system)})`;
         });
         await run(this.databasePath, `INSERT INTO browser_bucket_rebuild(track_id, browser_game, browser_system) VALUES ${values.join(",")};`);
@@ -586,7 +595,14 @@ class LibraryDatabase {
         UPDATE tracks
         SET browser_game=(SELECT browser_game FROM browser_bucket_rebuild b WHERE b.track_id=tracks.id),
             browser_system=(SELECT browser_system FROM browser_bucket_rebuild b WHERE b.track_id=tracks.id);
-        INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('browser-buckets-v3', 'complete');
+        DELETE FROM track_search;
+        INSERT INTO track_search(rowid, content)
+        SELECT t.id, ${searchDocumentExpression()}
+        FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id;
+        ${gameSidebarBucketStatements().join("\n")}
+        INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('browser-buckets-v4', 'complete');
+        INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('track-search-v1', 'complete');
+        INSERT OR REPLACE INTO library_schema_state(key, value) VALUES('game-sidebar-buckets-v1', 'complete');
         COMMIT;
       `);
     } finally {
@@ -602,10 +618,11 @@ class LibraryDatabase {
     `, true);
     if (!rows.length) return;
     const updates = rows.map((row) => {
-      const game = path.basename(row.archivePath, path.extname(row.archivePath));
+      const game = archiveTitleFromPath(row.archivePath);
       return `UPDATE track_metadata SET game=${sqlText(game)} WHERE track_id=${sqlNumber(row.trackId)}; UPDATE tracks SET browser_game=${sqlText(game)} WHERE id=${sqlNumber(row.trackId)};`;
     });
     await run(this.databasePath, `BEGIN TRANSACTION;${updates.join("")}COMMIT;`);
+    await this.rebuildBrowserBuckets();
   }
 
   async loadRoots() {
@@ -667,6 +684,8 @@ class LibraryDatabase {
 
   async replaceTracks(rootId, records, scanStats = {}) {
     const now = Date.now() / 1000;
+    const libraryRoot = await this.loadRoot(rootId);
+    if (!libraryRoot) throw new Error("Cannot replace tracks for an unknown library root");
     const staged = this.atomicScanRootId === Number(rootId) && Boolean(this.atomicScanGeneration);
     const rootState = staged ? null : (await run(this.databasePath, `SELECT active_scan_generation AS generation FROM library_roots WHERE id=${sqlNumber(rootId)};`, true))[0];
     const scanGeneration = staged ? this.atomicScanGeneration : String(rootState?.generation || "legacy");
@@ -697,6 +716,7 @@ class LibraryDatabase {
     for (let index = 0; index < records.length; index += 1000) {
       const commands = [];
       for (const record of records.slice(index, index + 1000)) {
+        const identityRecord = { ...record, rootPath: libraryRoot.path };
         commands.push({
           sql: insertTrackSQL,
           params: [
@@ -707,7 +727,7 @@ class LibraryDatabase {
             record.archiveEntry ? normalizeArchiveEntry(record.archiveEntry) : null,
             record.archiveSignature || null, record.sourceSignature || null,
             record.scanCompleted ? 1 : 0, Number(record.scanVersion) || 0,
-            browserGameForRecord(record, this.preferEmbeddedConsoleTags), browserSystemForRecord(record, this.preferEmbeddedConsoleTags), scanGeneration
+            browserGameForRecord(identityRecord, this.preferEmbeddedConsoleTags), browserSystemForRecord(identityRecord, this.preferEmbeddedConsoleTags), scanGeneration
           ]
         });
         if (record.metadata) {
@@ -796,7 +816,7 @@ class LibraryDatabase {
       const browserGame = usableMetadataValue(metadata.game);
       statements.push(`UPDATE tracks SET browser_game=CASE WHEN ${sqlText(browserGame)} <> '' THEN ${sqlText(browserGame)} ELSE browser_game END WHERE ${activePredicate};`);
       if (this.preferEmbeddedConsoleTags) {
-        const browserSystem = usableMetadataValue(metadata.system);
+        const browserSystem = normalizeConsoleName(usableMetadataValue(metadata.system));
         statements.push(`UPDATE tracks SET browser_system=CASE WHEN ${sqlText(browserSystem)} <> '' THEN ${sqlText(browserSystem)} ELSE browser_system END WHERE ${activePredicate};`);
       }
       statements.push(`INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) SELECT id, ${sqlText(metadata.title)}, ${sqlText(metadata.game)}, ${sqlText(metadata.artist)}, ${sqlText(metadata.system)}, ${sqlNumber(metadata.playLengthMs)}, ${sqlNumber(now)} FROM tracks WHERE ${activePredicate} ON CONFLICT(track_id) DO UPDATE SET title=excluded.title, game=excluded.game, artist=excluded.artist, system=excluded.system, play_length_ms=excluded.play_length_ms, metadata_scanned_at=excluded.metadata_scanned_at;`);
@@ -1050,8 +1070,10 @@ class LibraryDatabase {
       while (true) {
         const rows = await run(this.databasePath, `
           SELECT t.id, t.folder_path AS folderPath, t.path, t.archive_path AS archivePath,
+                 r.path AS rootPath,
                  m.game, m.system
           FROM tracks t
+          JOIN library_roots r ON r.id=t.root_id
           LEFT JOIN track_metadata m ON m.track_id=t.id
           WHERE t.id>${sqlNumber(lastTrackId)}
           ORDER BY t.id
@@ -1064,11 +1086,13 @@ class LibraryDatabase {
             folderPath: row.folderPath,
             path: row.path,
             archivePath: row.archivePath,
+            rootPath: row.rootPath,
             metadata: { game: row.game || "", system: row.system || "" }
           }, next), browserSystemForRecord({
             folderPath: row.folderPath,
             path: row.path,
             archivePath: row.archivePath,
+            rootPath: row.rootPath,
             metadata: { game: row.game || "", system: row.system || "" }
           }, next), Number(row.id)]
         })));
@@ -1141,4 +1165,4 @@ class LibraryDatabase {
   }
 }
 
-module.exports = { LibraryDatabase };
+module.exports = { LibraryDatabase, resolveLibraryBrowserIdentity: browserBucketsForRecord };
