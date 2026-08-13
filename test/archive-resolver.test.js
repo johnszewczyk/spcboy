@@ -10,17 +10,17 @@ const {
   archivePlayableEntriesWithSignature,
   listArchiveEntries,
   archiveType,
-  materializeArchiveEntryForScan,
+  materializeArchiveEntryForInspection,
   materializeArchiveEntryForPlayback,
-  materializeArchiveEntriesForScan,
+  materializeArchiveEntriesForInspection,
   materializeZipEntry,
   archiveCacheSummary,
   clearArchiveCache,
   pruneArchiveCache,
   recoverArchiveCachePartials,
   fastSourceSignature,
-  scanScratchSummary,
-  recoverAbandonedScanScratchRoots
+  inspectionScratchSummary,
+  recoverAbandonedInspectionScratchRoots
 } = require("../electron/archive-resolver");
 
 const execFileAsync = promisify(execFile);
@@ -71,11 +71,11 @@ test("lists and concurrently materializes ZIP dependency-family members", async 
     for (let index = 0; index < playableEntries.length; index += 1) {
       assert.equal(await fs.readFile(materializedPaths[index], "utf8"), playableEntries[index]);
     }
-    const scanMaterialized = await materializeArchiveEntryForScan(archivePath, playableEntries[0]);
-    assert.equal(await fs.readFile(scanMaterialized.path, "utf8"), playableEntries[0]);
-    assert.equal(await fs.readFile(path.join(path.dirname(scanMaterialized.path), "re2.psflib"), "utf8"), "re2.psflib");
-    await scanMaterialized.cleanup();
-    await assert.rejects(fs.access(scanMaterialized.path));
+    const inspectedMaterial = await materializeArchiveEntryForInspection(archivePath, playableEntries[0]);
+    assert.equal(await fs.readFile(inspectedMaterial.path, "utf8"), playableEntries[0]);
+    assert.equal(await fs.readFile(path.join(path.dirname(inspectedMaterial.path), "re2.psflib"), "utf8"), "re2.psflib");
+    await inspectedMaterial.cleanup();
+    await assert.rejects(fs.access(inspectedMaterial.path));
   } finally {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
@@ -124,7 +124,7 @@ test("materializes TXT P CD-XA DA companions without admitting them as tracks", 
       return t.skip(`zip fixture tool unavailable: ${error.message}`);
     }
 
-    const materialized = await materializeArchiveEntryForScan(archivePath, txtpEntry);
+    const materialized = await materializeArchiveEntryForInspection(archivePath, txtpEntry);
     assert.equal(await fs.readFile(materialized.path, "utf8"), `${companionEntry}\n`);
     assert.equal(await fs.readFile(path.join(path.dirname(materialized.path), companionEntry), "utf8"), "CD-XA fixture");
     await materialized.cleanup();
@@ -163,11 +163,11 @@ test("repairs safe TXT P references to uniquely flattened raw companions", async
   }
 });
 
-test("cleans scan-only archive materialization after inspection", async (t) => {
-  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-scan-scratch-fixture-"));
+test("cleans playlist-only archive materialization after inspection", async (t) => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-playlist-inspection-scratch-fixture-"));
   try {
     const member = "song.nsf";
-    await fs.writeFile(path.join(fixtureRoot, member), "scan fixture", "utf8");
+    await fs.writeFile(path.join(fixtureRoot, member), "inspection fixture", "utf8");
     const archivePath = path.join(fixtureRoot, "fixture.zip");
     try {
       await execFileAsync("/usr/bin/zip", ["-q", archivePath, member], { cwd: fixtureRoot });
@@ -175,8 +175,8 @@ test("cleans scan-only archive materialization after inspection", async (t) => {
       return t.skip(`zip fixture tool unavailable: ${error.message}`);
     }
 
-    const materialized = await materializeArchiveEntryForScan(archivePath, member);
-    assert.equal(await fs.readFile(materialized.path, "utf8"), "scan fixture");
+    const materialized = await materializeArchiveEntryForInspection(archivePath, member);
+    assert.equal(await fs.readFile(materialized.path, "utf8"), "inspection fixture");
     await materialized.cleanup();
     await assert.rejects(fs.access(materialized.path));
   } finally {
@@ -184,49 +184,49 @@ test("cleans scan-only archive materialization after inspection", async (t) => {
   }
 });
 
-test("recovers abandoned scan scratch roots while retaining a live materialization", async (t) => {
+test("recovers abandoned inspection scratch roots while retaining a live materialization", async (t) => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-scratch-recovery-"));
-  const previousScratchRoot = process.env.SPCBOY_SCAN_SCRATCH_ROOT;
-  process.env.SPCBOY_SCAN_SCRATCH_ROOT = fixtureRoot;
+  const previousScratchRoot = process.env.SPCBOY_INSPECTION_SCRATCH_ROOT;
+  process.env.SPCBOY_INSPECTION_SCRATCH_ROOT = fixtureRoot;
   try {
     const member = "song.nsf";
-    await fs.writeFile(path.join(fixtureRoot, member), "scan fixture", "utf8");
+    await fs.writeFile(path.join(fixtureRoot, member), "inspection fixture", "utf8");
     const archivePath = path.join(fixtureRoot, "fixture.zip");
     try {
       await execFileAsync("/usr/bin/zip", ["-q", archivePath, member], { cwd: fixtureRoot });
     } catch (error) {
       return t.skip(`zip fixture tool unavailable: ${error.message}`);
     }
-    const live = await materializeArchiveEntryForScan(archivePath, member);
-    const abandoned = path.join(fixtureRoot, "spcboy-scan-scratch-abandoned");
+    const live = await materializeArchiveEntryForInspection(archivePath, member);
+    const abandoned = path.join(fixtureRoot, "spcboy-playlist-inspection-scratch-abandoned");
     await fs.mkdir(abandoned);
     await fs.writeFile(path.join(abandoned, "payload.bin"), Buffer.alloc(4096));
-    const foreignLive = path.join(fixtureRoot, "spcboy-scan-scratch-foreign-live");
+    const foreignLive = path.join(fixtureRoot, "spcboy-playlist-inspection-scratch-foreign-live");
     await fs.mkdir(foreignLive);
     await fs.writeFile(path.join(foreignLive, ".spcboy-owner.json"), JSON.stringify({ pid: process.pid, token: "fixture" }));
     await fs.writeFile(path.join(foreignLive, "payload.bin"), Buffer.alloc(2048));
 
-    const recovered = await recoverAbandonedScanScratchRoots();
+    const recovered = await recoverAbandonedInspectionScratchRoots();
     assert.equal(recovered.recoveredRootCount, 1);
     assert.equal(recovered.recoveredBytes, 4096);
     await fs.access(live.path);
     await fs.access(foreignLive);
     await assert.rejects(fs.access(abandoned));
-    assert.equal((await scanScratchSummary()).activeRootCount, 1);
+    assert.equal((await inspectionScratchSummary()).activeRootCount, 1);
     await live.cleanup();
     await fs.rm(foreignLive, { recursive: true, force: true });
-    assert.deepEqual(await scanScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
+    assert.deepEqual(await inspectionScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
   } finally {
-    if (previousScratchRoot === undefined) delete process.env.SPCBOY_SCAN_SCRATCH_ROOT;
-    else process.env.SPCBOY_SCAN_SCRATCH_ROOT = previousScratchRoot;
+    if (previousScratchRoot === undefined) delete process.env.SPCBOY_INSPECTION_SCRATCH_ROOT;
+    else process.env.SPCBOY_INSPECTION_SCRATCH_ROOT = previousScratchRoot;
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
 });
 
-test("removes an active scan scratch root when streamed extraction exceeds its budget", async (t) => {
+test("removes an active inspection scratch root when streamed extraction exceeds its budget", async (t) => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-scratch-budget-"));
-  const previousScratchRoot = process.env.SPCBOY_SCAN_SCRATCH_ROOT;
-  process.env.SPCBOY_SCAN_SCRATCH_ROOT = fixtureRoot;
+  const previousScratchRoot = process.env.SPCBOY_INSPECTION_SCRATCH_ROOT;
+  process.env.SPCBOY_INSPECTION_SCRATCH_ROOT = fixtureRoot;
   try {
     const member = "oversized.nsf";
     await fs.writeFile(path.join(fixtureRoot, member), Buffer.alloc(4096));
@@ -238,7 +238,7 @@ test("removes an active scan scratch root when streamed extraction exceeds its b
     }
     let reserved = 0;
     await assert.rejects(
-      materializeArchiveEntryForScan(archivePath, member, {
+      materializeArchiveEntryForInspection(archivePath, member, {
         reserveBytes(_rootPath, byteCount) {
           reserved += byteCount;
           if (reserved > 1024) throw new Error("scratch quota exceeded");
@@ -246,16 +246,16 @@ test("removes an active scan scratch root when streamed extraction exceeds its b
       }),
       /scratch quota exceeded/
     );
-    assert.deepEqual(await scanScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
+    assert.deepEqual(await inspectionScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
   } finally {
-    if (previousScratchRoot === undefined) delete process.env.SPCBOY_SCAN_SCRATCH_ROOT;
-    else process.env.SPCBOY_SCAN_SCRATCH_ROOT = previousScratchRoot;
+    if (previousScratchRoot === undefined) delete process.env.SPCBOY_INSPECTION_SCRATCH_ROOT;
+    else process.env.SPCBOY_INSPECTION_SCRATCH_ROOT = previousScratchRoot;
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
 });
 
-test("shares one scan scratch root across archive members", async (t) => {
-  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-shared-scan-fixture-"));
+test("shares one inspection scratch root across archive members", async (t) => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-shared-inspection-fixture-"));
   try {
     const members = ["one.psf", "two.psf", "game.psflib"];
     for (const member of members) await fs.writeFile(path.join(fixtureRoot, member), member, "utf8");
@@ -266,7 +266,7 @@ test("shares one scan scratch root across archive members", async (t) => {
       return t.skip(`zip fixture tool unavailable: ${error.message}`);
     }
 
-    const materialized = await materializeArchiveEntriesForScan(archivePath, members.slice(0, 2));
+    const materialized = await materializeArchiveEntriesForInspection(archivePath, members.slice(0, 2));
     assert.equal(new Set([...materialized.paths.values()].map((value) => path.dirname(value).split("/psf")[0])).size, 1);
     assert.equal(await fs.readFile(materialized.paths.get("one.psf"), "utf8"), "one.psf");
     assert.equal(await fs.readFile(materialized.paths.get("two.psf"), "utf8"), "two.psf");
@@ -296,7 +296,7 @@ test("materializes N64 miniUSF members with their USF library from TAR.ZST", asy
       return t.skip(`TAR/Zstandard fixture tools unavailable: ${error.message}`);
     }
 
-    const materialized = await materializeArchiveEntryForScan(archivePath, selected);
+    const materialized = await materializeArchiveEntryForInspection(archivePath, selected);
     assert.equal(await fs.readFile(materialized.path, "utf8"), "miniUSF fixture");
     assert.equal(await fs.readFile(path.join(path.dirname(materialized.path), library), "utf8"), "USF library fixture");
     await materialized.cleanup();
@@ -336,8 +336,8 @@ test("discovers and materializes module and standard-audio ZIP members", async (
 
 test("lists and materializes TZST and TAR.ZST members", async (t) => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-tzst-fixture-"));
-  const previousScratchRoot = process.env.SPCBOY_SCAN_SCRATCH_ROOT;
-  process.env.SPCBOY_SCAN_SCRATCH_ROOT = path.join(fixtureRoot, "scan-scratch");
+  const previousScratchRoot = process.env.SPCBOY_INSPECTION_SCRATCH_ROOT;
+  process.env.SPCBOY_INSPECTION_SCRATCH_ROOT = path.join(fixtureRoot, "inspection-scratch");
   try {
     const members = ["01 module.xm", "02 recording.flac"];
     for (const member of members) {
@@ -362,7 +362,7 @@ test("lists and materializes TZST and TAR.ZST members", async (t) => {
       archivePath,
       (extension) => new Set([".xm", ".flac"]).has(extension),
       {
-        scratchOwner: "scan",
+        scratchOwner: "inspection",
         async ensureCapacity() { capacityChecks += 1; },
         reserveScratchBytes(_rootPath, byteCount) { reservedBytes += byteCount; },
         async onScratchReleased() { releaseChecks += 1; }
@@ -372,15 +372,15 @@ test("lists and materializes TZST and TAR.ZST members", async (t) => {
     assert.equal(capacityChecks, 1);
     assert.ok(reservedBytes > 0);
     assert.equal(releaseChecks, 1);
-    assert.deepEqual(await scanScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
+    assert.deepEqual(await inspectionScratchSummary(), { activeRootCount: 0, activeBytes: 0 });
     const materializedPaths = await Promise.all(playableEntries.map((entry) => materializeZipEntry(archivePath, entry)));
     assert.equal(new Set(materializedPaths).size, members.length);
     for (let index = 0; index < members.length; index += 1) {
       assert.equal(await fs.readFile(materializedPaths[index], "utf8"), members[index]);
     }
   } finally {
-    if (previousScratchRoot === undefined) delete process.env.SPCBOY_SCAN_SCRATCH_ROOT;
-    else process.env.SPCBOY_SCAN_SCRATCH_ROOT = previousScratchRoot;
+    if (previousScratchRoot === undefined) delete process.env.SPCBOY_INSPECTION_SCRATCH_ROOT;
+    else process.env.SPCBOY_INSPECTION_SCRATCH_ROOT = previousScratchRoot;
     await fs.rm(fixtureRoot, { recursive: true, force: true });
   }
 });
@@ -401,7 +401,7 @@ test("materializes selected TAR.ZST tracks when non-audio members follow them", 
       throw error;
     }
 
-    const materialized = await materializeArchiveEntriesForScan(archivePath, selectedEntries);
+    const materialized = await materializeArchiveEntriesForInspection(archivePath, selectedEntries);
     try {
       for (const entry of selectedEntries) {
         assert.equal(await fs.readFile(materialized.paths.get(entry), "utf8"), entry);

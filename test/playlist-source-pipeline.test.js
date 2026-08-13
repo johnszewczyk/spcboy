@@ -5,13 +5,13 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
-const { discoverPhysicalSources } = require("../electron/scanner-discovery");
-const { expandArchiveSources } = require("../electron/scanner-archive");
+const { discoverPhysicalSources } = require("../electron/media-source-discovery");
+const { expandArchiveSources } = require("../electron/playlist-archive-discovery");
 
 const execFileAsync = promisify(execFile);
 
 test("discovers physical archives without listing them, then expands them in a bounded stage", async (t) => {
-  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-scanner-pipeline-"));
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-playlist-pipeline-"));
   try {
     await fs.writeFile(path.join(fixtureRoot, "direct.spc"), "direct", "utf8");
     await fs.writeFile(path.join(fixtureRoot, "inside.spc"), "inside", "utf8");

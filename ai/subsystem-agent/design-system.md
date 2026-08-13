@@ -11,7 +11,7 @@
 - Tool buttons use `rgb(40 40 40)` and the same 6px radius as library path panels.
 - The renderer uses a bundled Lucide SVG symbol sprite for compact actions, with `title` and `aria-label` text preserved for accessibility. Do not introduce one-off Unicode glyphs or a second icon family.
 - Options sidebar and content panel fill the available window height.
-- A library root row is one compact line: checkbox, health dot, existing folder name, successful-file total in parentheses, and glyph actions. Detailed scan totals belong in the Scan Log header.
+- A MediaScanner root row is one compact read-only line: health dot, folder name, successful-file total, and the stored Scan Log action.
 
 ## Files
 

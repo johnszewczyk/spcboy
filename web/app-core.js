@@ -36,7 +36,6 @@ const state = {
   folderSearchGeneration: 0,
   sidebarMode: "folders",
   consoleViewEnabled: true,
-  preferEmbeddedConsoleTags: false,
   databaseGames: [],
   databaseSearchGames: null,
   databaseSearchGeneration: 0,
@@ -70,7 +69,6 @@ const state = {
   sidebarWidthPercent: 20,
   accentColor: "lightskyblue",
   routingPreferences: {},
-  libraryDeepScanEnabled: false,
   archiveCacheEnabled: true,
   archiveCacheLimitBytes: DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES,
   playbackSpeed: { ...playbackSpeed.DEFAULT },
@@ -93,12 +91,6 @@ const state = {
   optionsOpen: false,
   optionsSection: "library",
   libraryRoots: [],
-  libraryScanStatus: "No scan started.",
-  libraryScanCurrentFile: "",
-  libraryOperationActive: false,
-  libraryOperationCancelling: false,
-  libraryOperationId: 0,
-  libraryScanProgress: null,
   databaseMaintenanceSummary: null,
   databaseLocation: null,
   databaseLocationStatus: "",
@@ -152,23 +144,10 @@ const refs = {
   optionsRoutingSection: document.getElementById("options-routing-section"),
   optionsPlaybackSection: document.getElementById("options-playback-section"),
   routingConflictsList: document.getElementById("routing-conflicts-list"),
-  libraryAddRootButton: document.getElementById("library-add-root-button"),
-  libraryToggleRootsButton: document.getElementById("library-toggle-roots-button"),
-  libraryScanAllButton: document.getElementById("library-scan-all-button"),
-  libraryDeepScanCheckbox: document.getElementById("library-deep-scan-checkbox"),
-  libraryTrimMissingButton: document.getElementById("library-trim-missing-button"),
-  libraryPurgeUnlinkedButton: document.getElementById("library-purge-unlinked-button"),
-  libraryClearDatabaseButton: document.getElementById("library-clear-database-button"),
   libraryClearCacheButton: document.getElementById("library-clear-cache-button"),
   archiveCacheEnabledCheckbox: document.getElementById("archive-cache-enabled-checkbox"),
   archiveCacheLimitSelect: document.getElementById("archive-cache-limit-select"),
-  libraryCancelButton: document.getElementById("library-cancel-button"),
   libraryRootList: document.getElementById("library-root-list"),
-  libraryScanStatus: document.getElementById("library-scan-status"),
-  libraryScanCurrentFile: document.getElementById("library-scan-current-file"),
-  libraryScanProgressBar: document.getElementById("library-scan-progress-bar"),
-  libraryScanProgressFill: document.getElementById("library-scan-progress-fill"),
-  libraryScanStatusPanel: document.getElementById("library-scan-status-panel"),
   databaseIndexedTrackCount: document.getElementById("database-indexed-track-count"),
   databaseUnlinkedSourceCount: document.getElementById("database-unlinked-source-count"),
   databaseUnlinkedTrackCount: document.getElementById("database-unlinked-track-count"),
@@ -190,7 +169,6 @@ const refs = {
   sidebarWidthInput: document.getElementById("sidebar-width-input"),
   accentColorInput: document.getElementById("accent-color-input"),
   consoleViewCheckbox: document.getElementById("console-view-checkbox"),
-  preferEmbeddedConsoleTagsCheckbox: document.getElementById("prefer-embedded-console-tags-checkbox"),
   uiItemSpacingInput: document.getElementById("ui-item-spacing-input"),
   spcForceLengthCheckbox: document.getElementById("spc-force-length-checkbox"),
   queuedSkipsCheckbox: document.getElementById("queued-skips-checkbox"),
@@ -257,7 +235,6 @@ function loadSettings() {
     state.selectedBrowserPath = parsed.selectedBrowserPath || state.selectedFolderPath;
     state.sidebarMode = parsed.sidebarMode === "database" ? "database" : "folders";
     state.consoleViewEnabled = Boolean(parsed.consoleViewEnabled);
-    state.preferEmbeddedConsoleTags = Boolean(parsed.preferEmbeddedConsoleTags);
     state.selectedDatabaseGameKey = parsed.selectedDatabaseGameKey || null;
     state.lastSelectedTrackId = parsed.lastSelectedTrackId || null;
     state.uiFontSizePt = normalizeFontSize(parsed.uiFontSizePt);
@@ -273,7 +250,6 @@ function loadSettings() {
     state.sidebarWidthPercent = normalizeSidebarWidth(parsed.sidebarWidthPercent);
     state.accentColor = normalizeAccentColor(parsed.accentColor);
     state.routingPreferences = parsed.routingPreferences && typeof parsed.routingPreferences === "object" ? { ...parsed.routingPreferences } : {};
-    state.libraryDeepScanEnabled = Boolean(parsed.libraryDeepScanEnabled);
     state.archiveCacheEnabled = parsed.archiveCacheEnabled !== false;
     state.archiveCacheLimitBytes = normalizeArchiveCacheLimit(parsed.archiveCacheLimitBytes);
     state.columnOrder = normalizeColumnOrder(parsed.columnOrder);
@@ -308,7 +284,6 @@ function persistSettings() {
     selectedBrowserPath: state.selectedBrowserPath,
     sidebarMode: state.sidebarMode,
     consoleViewEnabled: state.consoleViewEnabled,
-    preferEmbeddedConsoleTags: state.preferEmbeddedConsoleTags,
     selectedDatabaseGameKey: state.selectedDatabaseGameKey,
     lastSelectedTrackId: state.lastSelectedTrackId,
     uiFontSizePt: state.uiFontSizePt,
@@ -324,7 +299,6 @@ function persistSettings() {
     sidebarWidthPercent: state.sidebarWidthPercent,
     accentColor: state.accentColor,
     routingPreferences: state.routingPreferences,
-    libraryDeepScanEnabled: state.libraryDeepScanEnabled,
     archiveCacheEnabled: state.archiveCacheEnabled,
     archiveCacheLimitBytes: state.archiveCacheLimitBytes,
     columnOrder: state.columnOrder,

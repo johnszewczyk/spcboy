@@ -35,7 +35,7 @@ function createCanonicalFixture(databasePath) {
   database.close();
 }
 
-test("canonical reader loads the CocoaSpice catalog without mutating it", async (t) => {
+test("canonical reader loads a MediaScanner catalog and exposes no mutation API", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "spcboy-canonical-reader-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const databasePath = path.join(directory, "Library.sqlite");
@@ -54,7 +54,7 @@ test("canonical reader loads the CocoaSpice catalog without mutating it", async 
   const tracks = await reader.tracksForGames(selected);
   assert.equal(tracks[0].artist, "Konami");
   assert.equal(tracks[0].playLengthMs, 120000);
-  await assert.rejects(reader.clearDatabase(), /read-only in SPCBoy/);
+  assert.equal(reader.clearDatabase, undefined);
   assert.equal(await reader.trackCount(), 1);
 });
 

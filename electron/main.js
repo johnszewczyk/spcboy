@@ -5,13 +5,13 @@ const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, powerSaveBloc
 const { CanonicalLibraryReader } = require("./canonical-library-reader");
 const { runMediaScanner } = require("./media-scanner-client");
 const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
-const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, isSupportedArchivePath, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
-const { discoverPhysicalSources } = require("./scanner-discovery");
-const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./scanner-archive");
+const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForInspection, isSupportedArchivePath, recoverAbandonedInspectionScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
+const { discoverPhysicalSources } = require("./media-source-discovery");
+const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./playlist-archive-discovery");
 const { createPlaylistReader } = require("./library-playlist");
 const { playlistTrackIdentity } = require("./playlist-track-identity");
 const { createNativeAudioTools } = require("./native-audio-tools");
-const { createTrackInspector } = require("./track-inspector");
+const { createTrackInspector } = require("./playlist-track-inspector");
 const { createPlaylistArchiveMetadataService } = require("./playlist-archive-metadata");
 const { createLatestRequestCoalescer } = require("./latest-request-coalescer");
 
@@ -45,8 +45,6 @@ let playbackPowerSaveBlockerId = null;
 let nativePlaybackBroadcastTimer = null;
 let nativePlaybackBroadcastInFlight = false;
 let libraryDatabase = null;
-let activeLibraryJob = null;
-let scanScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
 
 function defaultLibraryDatabasePath() {
   return path.join(app.getPath("appData"), "CocoaSpice", "Library.sqlite");
@@ -82,20 +80,13 @@ function libraryDatabaseLocation() {
     defaultPath: defaultLibraryDatabasePath(),
     readOnly: Boolean(libraryDatabase?.isReadOnly),
     requiresRestart: Boolean(libraryDatabase && path.resolve(libraryDatabase.databasePath) !== configuredPath),
-    mode: libraryDatabase?.catalogKind || "legacy"
+    mode: libraryDatabase?.catalogKind || "unavailable"
   };
 }
 
-function assertLibraryDatabaseWritable() {
-  if (libraryDatabase?.isReadOnly) {
-    throw new Error("The shared library database is read-only in SPCBoy. Use MediaScanner to modify it.");
-  }
-}
 let playbackScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
 let archiveCacheRecovery = { recoveredPartialCount: 0, recoveredBytes: 0 };
-let quitAfterLibraryCleanup = false;
 let quitAfterArchivePlaybackCleanup = false;
-const LIBRARY_QUIT_GRACE_MS = 30_000;
 let activeArchivePlaybackMaterialization = null;
 let archiveCacheSettings = { enabled: true, limitBytes: DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES };
 const { readPlaylist, readPlaylistForFile } = createPlaylistReader({
@@ -106,12 +97,10 @@ const { readPlaylist, readPlaylistForFile } = createPlaylistReader({
   isSupportedArchivePath,
   discoverPhysicalSources,
   expandArchiveSources,
-  materializeArchiveEntries: materializeArchiveEntriesForScan,
+  materializeArchiveEntries: materializeArchiveEntriesForInspection,
   inspectTrackVariants: (...args) => inspectTrackVariants(...args),
   archiveListConcurrency: ARCHIVE_LIST_CONCURRENCY
 });
-let activeLibraryProgress = null;
-let nextLibraryJobId = 1;
 const searchDatabaseGames = createLatestRequestCoalescer(
   (query) => libraryDatabase.searchGames(query),
   []
@@ -147,56 +136,6 @@ const nativeAudio = createNativeAudioTools({
   backendForPath,
   supportsNativePlayback
 });
-
-function beginLibraryJob(operation) {
-  if (activeLibraryJob) throw new Error(`${activeLibraryJob.operation} is already running`);
-  const abortController = new AbortController();
-  const job = { id: nextLibraryJobId++, operation, cancelled: false, signal: abortController.signal, abortController };
-  activeLibraryJob = job;
-  return job;
-}
-
-function cancelLibraryJob(job) {
-  if (!job || job.cancelled) return;
-  job.cancelled = true;
-  job.abortController?.abort(new Error("Library operation cancelled"));
-  if (activeLibraryJob === job) broadcastLibraryOperationState();
-}
-
-function throwIfLibraryJobCancelled(job) {
-  if (job?.cancelled) throw new Error("Library operation cancelled");
-}
-
-function libraryOperationState() {
-  return {
-    active: Boolean(activeLibraryJob),
-    cancelling: Boolean(activeLibraryJob?.cancelled),
-    jobId: activeLibraryJob?.id || 0,
-    operation: activeLibraryJob?.operation || null,
-    progress: activeLibraryProgress,
-    scratchRecovery: scanScratchRecovery,
-    playbackScratchRecovery
-  };
-}
-
-function broadcastLibraryOperationState() {
-  const state = libraryOperationState();
-  for (const window of [mainWindow, optionsWindow]) {
-    if (window && !window.isDestroyed()) window.webContents.send("library:operation-state-changed", state);
-  }
-}
-
-function broadcastLibraryProgress(progress) {
-  if (activeLibraryJob?.cancelled) return;
-  const progressWithJob = {
-    ...progress,
-    jobId: activeLibraryJob?.id || 0
-  };
-  activeLibraryProgress = progressWithJob;
-  for (const window of [mainWindow, optionsWindow]) {
-    if (window && !window.isDestroyed()) window.webContents.send("library:scan-progress", progressWithJob);
-  }
-}
 
 function bringAppWindowsToFront(preferredWindow = null) {
   const focusedWindow = preferredWindow && !preferredWindow.isDestroyed()
@@ -304,21 +243,6 @@ async function openScanLogWindow(root) {
   scanLogWindow.show();
   scanLogWindow.focus();
   bringAppWindowsToFront(scanLogWindow);
-}
-
-async function withLibraryJob(operation, work) {
-  const job = beginLibraryJob(operation);
-  activeLibraryProgress = { operation: "prepare", completed: 0, total: 0, path: operation, jobId: job.id };
-  broadcastLibraryOperationState();
-  try {
-    return await work(job);
-  } finally {
-    if (activeLibraryJob === job) {
-      activeLibraryJob = null;
-      activeLibraryProgress = null;
-      broadcastLibraryOperationState();
-    }
-  }
 }
 
 function resolveRootPngIconPath() {
@@ -665,7 +589,7 @@ const { inspectTrack, inspectTrackVariants } = createTrackInspector({
   cacheMaxEntries: METADATA_CACHE_MAX_ENTRIES
 });
 const playlistArchiveMetadata = createPlaylistArchiveMetadataService({
-  materializeArchiveEntries: materializeArchiveEntriesForScan,
+  materializeArchiveEntries: materializeArchiveEntriesForInspection,
   inspectTrack
 });
 
@@ -707,47 +631,6 @@ async function readBrowserDirectory(folderPath) {
       childrenLoaded: true
     }));
   return [...folders, ...files];
-}
-
-async function trimMissingLibrary(inheritedJob = null) {
-  if (!inheritedJob) return withLibraryJob("Test Files", (job) => trimMissingLibrary(job));
-  const job = inheritedJob;
-  if (!libraryDatabase) throw new Error("Library database is not initialized");
-  const sources = await libraryDatabase.indexedSources();
-  const missingSources = [];
-  let lastProgressAt = 0;
-  for (let index = 0; index < sources.length; index += 1) {
-    throwIfLibraryJobCancelled(job);
-    const source = sources[index];
-    try {
-      await fs.access(source.path);
-    } catch (error) {
-      if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
-        missingSources.push(source);
-      } else {
-        throw new Error(`Cannot access indexed source: ${source.path} (${error?.code || error?.message || "unknown error"})`);
-      }
-    }
-    const now = Date.now();
-    if (now - lastProgressAt >= 100 || index + 1 === sources.length) {
-      lastProgressAt = now;
-      broadcastLibraryProgress({
-        operation: "trim",
-        completed: index + 1,
-        total: sources.length,
-        path: source.path
-      });
-    }
-  }
-  throwIfLibraryJobCancelled(job);
-  const result = await libraryDatabase.markSourcesDead(missingSources);
-  return {
-    ...result,
-    checkedSourceCount: sources.length,
-    missingSourceCount: missingSources.length,
-    missingSourcePaths: missingSources.map((source) => source.path),
-    roots: await libraryDatabase.loadRoots()
-  };
 }
 
 async function hasSupportedAudioFiles(folderPath) {
@@ -989,22 +872,6 @@ async function chooseLibrarySnapshot() {
   return snapshotForOpenPath(result.filePaths[0]);
 }
 
-async function chooseLibraryPath() {
-  const window = await ensureMainWindow();
-  if (!window || window.isDestroyed()) return null;
-  const result = await dialog.showOpenDialog(window, {
-    properties: ["openDirectory", "multiSelections"],
-    title: "Add Library Folders"
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  const rootPaths = [];
-  for (const selectedPath of result.filePaths) {
-    const target = await resolveLibraryTarget(selectedPath);
-    if (target?.rootPath && !rootPaths.includes(target.rootPath)) rootPaths.push(target.rootPath);
-  }
-  return rootPaths;
-}
-
 async function openLibraryFromDialog() {
   const snapshot = await chooseLibrarySnapshot();
   deliverLibrarySnapshot(snapshot);
@@ -1141,20 +1008,6 @@ ipcMain.handle("app:bootstrap", async () => {
 });
 
 ipcMain.handle("library:choose-root", async () => chooseLibrarySnapshot());
-ipcMain.handle("library:choose-path", async () => {
-  assertLibraryDatabaseWritable();
-  const rootPaths = await chooseLibraryPath();
-  if (!rootPaths) return null;
-  const existingIds = new Set((await libraryDatabase.loadRoots()).map((root) => Number(root.id)));
-  for (const rootPath of rootPaths) await libraryDatabase.ensureRoot(rootPath);
-  const roots = await libraryDatabase.loadRoots();
-  broadcastLibraryRoots(roots);
-  return {
-    roots,
-    selectedCount: rootPaths.length,
-    addedCount: roots.filter((root) => !existingIds.has(Number(root.id))).length
-  };
-});
 ipcMain.handle("library:database-location", async () => libraryDatabaseLocation());
 ipcMain.handle("library:database-location-choose", async () => {
   const result = await dialog.showOpenDialog(optionsWindow || mainWindow, {
@@ -1220,58 +1073,7 @@ ipcMain.handle("library:refresh-tree", async (_event, rootPath, selectedFolderPa
   snapshotForRoot(rootPath, selectedFolderPath));
 
 ipcMain.handle("library:database-roots", async () => libraryDatabase.loadRoots());
-ipcMain.handle("library:operation-state", async () => ({
-  ...libraryOperationState()
-}));
-function broadcastLibraryRoots(roots) {
-  for (const window of [mainWindow, optionsWindow]) {
-    if (window && !window.isDestroyed()) window.webContents.send("library:roots-changed", roots);
-  }
-}
-
-function broadcastLibraryDatabaseChanged(change, excludedWebContents = null) {
-  for (const window of [mainWindow, optionsWindow]) {
-    if (window && !window.isDestroyed() && window.webContents !== excludedWebContents) {
-      window.webContents.send("library:database-changed", change);
-    }
-  }
-}
-
-ipcMain.handle("library:database-remove-root", async (_event, rootId) => {
-  assertLibraryDatabaseWritable();
-  const roots = await libraryDatabase.removeRoot(rootId);
-  broadcastLibraryRoots(roots);
-  return roots;
-});
-ipcMain.handle("library:database-set-root-enabled", async (_event, rootId, enabled) => {
-  assertLibraryDatabaseWritable();
-  const roots = await libraryDatabase.setRootEnabled(rootId, enabled);
-  broadcastLibraryRoots(roots);
-  return roots;
-});
-ipcMain.handle("library:database-set-roots-enabled", async (_event, rootIds, enabled) => {
-  assertLibraryDatabaseWritable();
-  const roots = await libraryDatabase.setRootsEnabled(rootIds, enabled);
-  broadcastLibraryRoots(roots);
-  return roots;
-});
-ipcMain.handle("library:database-move-root", async (_event, rootId, direction) => {
-  assertLibraryDatabaseWritable();
-  const roots = await libraryDatabase.moveRoot(rootId, direction);
-  broadcastLibraryRoots(roots);
-  return roots;
-});
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
-ipcMain.handle("library:console-tag-preference", async (event, enabled) => {
-  assertLibraryDatabaseWritable();
-  if (activeLibraryJob) throw new Error("Finish the active library operation before changing console-tag source.");
-  const value = await libraryDatabase.setPreferEmbeddedConsoleTags(enabled);
-  broadcastLibraryDatabaseChanged({
-    roots: await libraryDatabase.loadRoots(),
-    preferEmbeddedConsoleTags: value
-  }, event.sender);
-  return value;
-});
 ipcMain.handle("library:database-search-games", async (_event, query) => searchDatabaseGames(query));
 ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>
   searchDatabaseBrowser(normalizeFolderPath(rootPath), query));
@@ -1282,32 +1084,6 @@ ipcMain.handle("library:database-game-tracks", async (_event, games) => {
     playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
   }));
 });
-ipcMain.handle("library:database-scan", async () => {
-  assertLibraryDatabaseWritable();
-});
-ipcMain.handle("library:database-scan-all", async () => {
-  assertLibraryDatabaseWritable();
-});
-ipcMain.handle("library:database-trim-missing", async (event) => {
-  assertLibraryDatabaseWritable();
-  const result = await trimMissingLibrary();
-  for (const window of [mainWindow, optionsWindow]) {
-    if (window && !window.isDestroyed() && window.webContents !== event.sender) {
-      window.webContents.send("library:database-changed", result);
-    }
-  }
-  return result;
-});
-ipcMain.handle("library:database-purge-unlinked", async () => {
-  assertLibraryDatabaseWritable();
-  if (!libraryDatabase) throw new Error("Library database is not initialized");
-  return libraryDatabase.deleteDeadSources();
-});
-ipcMain.handle("library:database-clear", async () => {
-  assertLibraryDatabaseWritable();
-  if (!libraryDatabase) throw new Error("Library database is not initialized");
-  return libraryDatabase.clearDatabase();
-});
 ipcMain.handle("library:database-maintenance-summary", async () => {
   if (!libraryDatabase) throw new Error("Library database is not initialized");
   return {
@@ -1315,7 +1091,6 @@ ipcMain.handle("library:database-maintenance-summary", async () => {
     unlinkedSourceCount: await libraryDatabase.deadSourceCount(),
     unlinkedTrackCount: await libraryDatabase.deadTrackCount(),
     databaseStorage: await libraryDatabase.databaseStorageMetrics(),
-    lastAtomicScan: libraryDatabase.lastAtomicScanMetrics,
     archiveCache: { ...await archiveCacheSummary(), recovery: archiveCacheRecovery }
   };
 });
@@ -1325,17 +1100,11 @@ ipcMain.handle("library:archive-cache-summary", async () => ({
   limitBytes: archiveCacheSettings.limitBytes
 }));
 ipcMain.handle("library:archive-cache-clear", async () => {
-  if (activeLibraryJob) throw new Error("Stop the library operation before clearing the archive cache.");
   if (playbackPowerSaveBlockerId !== null) throw new Error("Stop playback before clearing the archive cache.");
   if (isArchiveCacheBusy()) throw new Error("Wait for archive materialization to finish before clearing the archive cache.");
   return clearArchiveCache();
 });
 ipcMain.handle("library:archive-cache-configure", async (_event, settings) => configureArchiveCache(settings));
-ipcMain.handle("library:database-cancel-operation", async () => {
-  if (!activeLibraryJob) return false;
-  cancelLibraryJob(activeLibraryJob);
-  return true;
-});
 ipcMain.handle("app:open-options", async () => openOptionsWindow());
 ipcMain.handle("app:close-options", async (event) => {
   const window = BrowserWindow.fromWebContents(event.sender);
@@ -1555,7 +1324,7 @@ app.on("second-instance", () => {
 app.whenReady().then(async () => {
   if (!ownsSingleInstance) return;
   archiveCacheRecovery = await recoverArchiveCachePartials();
-  scanScratchRecovery = await recoverAbandonedScanScratchRoots();
+  await recoverAbandonedInspectionScratchRoots();
   playbackScratchRecovery = await recoverAbandonedPlaybackScratchRoots();
   libraryDatabase = new CanonicalLibraryReader(configuredLibraryDatabasePath());
   await libraryDatabase.initialize();
@@ -1601,31 +1370,6 @@ app.on("open-file", (event, targetPath) => {
 });
 
 app.on("before-quit", (event) => {
-  if (activeLibraryJob && !quitAfterLibraryCleanup) {
-    event.preventDefault();
-    cancelLibraryJob(activeLibraryJob);
-    const job = activeLibraryJob;
-    const deadline = Date.now() + LIBRARY_QUIT_GRACE_MS;
-    const waitForCleanup = () => {
-      if (activeLibraryJob !== job) {
-        quitAfterLibraryCleanup = true;
-        app.quit();
-        return;
-      }
-      if (Date.now() >= deadline) {
-        // Source checkpoints are independent SQLite savepoints. A forced
-        // process exit leaves the hidden job recoverable and prevents one
-        // defective helper cleanup from hanging macOS termination forever.
-        quitAfterLibraryCleanup = true;
-        nativeAudio.terminate();
-        app.exit(0);
-        return;
-      }
-      setTimeout(waitForCleanup, 25);
-    };
-    waitForCleanup();
-    return;
-  }
   if (activeArchivePlaybackMaterialization && !quitAfterArchivePlaybackCleanup) {
     event.preventDefault();
     nativeAudio.terminate();

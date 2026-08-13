@@ -54,7 +54,7 @@ function cancellationError(signal, fallback) {
   return signal?.reason instanceof Error ? signal.reason : fallback;
 }
 
-async function withScanTimeout(operation, milliseconds, description, { signal = null } = {}) {
+async function withOperationTimeout(operation, milliseconds, description, { signal = null } = {}) {
   const controller = new AbortController();
   const timeoutError = new Error(`Timed out after ${milliseconds / 1000} seconds: ${description}`);
   const abortFromCaller = () => controller.abort(cancellationError(signal, new Error("Library operation cancelled")));
@@ -76,4 +76,4 @@ async function withScanTimeout(operation, milliseconds, description, { signal = 
   }
 }
 
-module.exports = { createAsyncLimiter, withScanTimeout };
+module.exports = { createAsyncLimiter, withOperationTimeout };

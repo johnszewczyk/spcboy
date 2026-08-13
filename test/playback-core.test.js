@@ -101,7 +101,7 @@ test("keeps every backend candidate instead of silently overwriting an overlappi
   assert.deepEqual(routingConflicts(), []);
 });
 
-test("exposes scanner routes from the playback registry", () => {
+test("exposes playlist inspection policies from the playback registry", () => {
   const usfRoute = routeForArchiveEntry("music/02 Title Theme.miniusf");
   assert.deepEqual({
     backendId: usfRoute.backendId,

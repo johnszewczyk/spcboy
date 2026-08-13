@@ -19,7 +19,7 @@ function createPlaylistArchiveMetadataService({ materializeArchiveEntries, inspe
             const inspection = await inspectTrack(materializedPath, track.sourceFilename || track.archiveEntry);
             updates.push({ ...track, inspection });
           } catch {
-            // Queue-time metadata is opportunistic. Scanner outcomes retain
+            // Queue-time metadata is opportunistic. Playlist outcomes retain
             // durable failures and retry state; leave this row unresolved.
           }
         }

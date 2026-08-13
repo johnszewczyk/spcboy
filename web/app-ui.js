@@ -14,7 +14,6 @@ let renderedDatabaseConsoleView = null;
 let databaseGameButtons = [];
 let databaseEmptyState = null;
 let databaseConsoleGroups = [];
-let libraryProgressRenderTimer = 0;
 const collapsedDatabaseConsoles = new Set();
 let browserClickTimer = 0;
 let databaseClickTimer = 0;
@@ -736,7 +735,7 @@ function renderDatabaseGames() {
   databaseEmptyState.classList.toggle("is-hidden", !state.databaseSidebarError && visibleCount > 0);
   databaseEmptyState.textContent = state.databaseSidebarError || (state.databaseGames.length
     ? "No database games match this search."
-    : "Scan a library folder to populate the database.");
+    : "Use MediaScanner to populate the selected database.");
   scheduleSelectionIndicators();
 }
 
@@ -825,33 +824,6 @@ function updateSidebarSearch(query) {
     }, 120);
     return;
   }
-}
-
-async function handleLibraryDatabaseChanged(change = {}) {
-  if (typeof change.preferEmbeddedConsoleTags === "boolean") {
-    state.preferEmbeddedConsoleTags = change.preferEmbeddedConsoleTags;
-    persistSettings();
-  }
-  const missingPaths = new Set(Array.isArray(change.missingSourcePaths) ? change.missingSourcePaths : []);
-  if (missingPaths.size) {
-    const currentTrack = state.playlist.find((track) => track.id === state.currentTrackId);
-    if (currentTrack && missingPaths.has(currentTrack.archivePath || currentTrack.path)) {
-      await uiApp.playback.stopPlaybackState();
-    }
-    state.playlist = state.playlist.filter((track) => !missingPaths.has(track.archivePath || track.path));
-    state.selectedTrackId = resolveSelectedTrackId(state.playlist);
-    state.lastSelectedTrackId = state.selectedTrackId;
-    persistSettings();
-  }
-  if (Array.isArray(change.roots)) state.libraryRoots = change.roots;
-  await refreshDatabaseGamesForVisibleRoots();
-  if (!window.spcBoy?.isOptionsWindow && state.rootPath && window.spcBoy?.refreshTree) {
-    try {
-      const snapshot = await window.spcBoy.refreshTree(state.rootPath, state.selectedFolderPath);
-      state.tree = snapshot.tree || state.tree;
-    } catch {}
-  }
-  renderAll();
 }
 
 async function loadDatabaseGame(game) {
@@ -1492,99 +1464,6 @@ function showScanLog(root) {
   }
 }
 
-function applyLibraryProgress(progress) {
-  if (!progress) return;
-  const jobId = Number(progress.jobId || 0);
-  if (jobId && (!state.libraryOperationActive || (state.libraryOperationId && state.libraryOperationId !== jobId))) return;
-  const progressPath = String(progress.path || "");
-  const phaseLabels = {
-    preparing: "Preparing scan",
-    discovery: "Discovering files",
-    planning: "Planning scan",
-    archiveListing: "Listing archives",
-    materialization: "Extracting archive",
-    inspection: "Inspecting metadata",
-    persistence: "Saving scan",
-    publication: "Publishing scan",
-    cleanup: "Cleaning up scan"
-  };
-  const operation = progress.operation === "trim"
-    ? "Checking files"
-    : phaseLabels[progress.phase]
-      || (progress.operation === "stream" && progress.stage === "archiveListing" ? "Listing archive" : "Scanning");
-  // Discovery has no final source total yet, but it is still real work. Keep
-  // the progress surface visible and use its indeterminate treatment until a
-  // stable total is available.
-  state.libraryScanProgress = progress;
-  const baseStatus = progress.phase === "preparing" || progress.phase === "planning"
-    ? `${operation}…`
-    : progress.phase === "discovery"
-      ? `${operation} • ${progress.completed} found${Number(progress.estimatedTotal) > 0 ? ` of ~${progress.estimatedTotal} expected` : ""} • ${progress.visitedFolders || 0} folders`
-    : progress.operation === "stream" && !progress.total
-      ? operation
-      : `${operation} ${progress.completed}/${progress.total}`;
-  const scratch = progress.scratch;
-  const scratchStatus = scratch
-    ? `Scratch ${scratch.activeRootCount || 0} active • ${(Number(scratch.activeBytes || 0) / (1024 * 1024)).toFixed(0)} MB • recovered ${scratch.recoveredRootCount || 0}/${(Number(scratch.recoveredBytes || 0) / (1024 * 1024)).toFixed(0)} MB`
-    : "";
-  state.libraryScanStatus = scratchStatus ? `${baseStatus} • ${scratchStatus}` : baseStatus;
-  state.libraryScanCurrentFile = progressPath;
-  if (!libraryProgressRenderTimer) {
-    libraryProgressRenderTimer = window.setTimeout(() => {
-      libraryProgressRenderTimer = 0;
-      // Progress is telemetry, not a structural UI update. Rebuilding the
-      // sidebar tree and playlist on every scan tick made large JoshW scans
-      // compete with the scanner for the renderer's main thread.
-      refs.libraryScanStatusPanel.classList.remove("is-hidden");
-      refs.libraryScanStatus.textContent = state.libraryScanStatus;
-      refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
-      refs.libraryCancelButton.disabled = !state.libraryOperationActive || state.libraryOperationCancelling;
-      const progressState = state.libraryScanProgress;
-      const total = Number(progressState?.total || 0);
-      const estimatedTotal = Number(progressState?.estimatedTotal || 0);
-      const completed = Number(progressState?.completed || 0);
-      refs.libraryScanProgressBar.classList.toggle("is-collapsed", !progressState);
-      refs.libraryScanProgressBar.classList.toggle("is-preparing", Boolean(progressState) && !total && !estimatedTotal);
-      refs.libraryScanProgressBar.classList.toggle("is-estimated", Boolean(progressState) && !total && estimatedTotal > 0);
-      const ariaMaximum = total || estimatedTotal;
-      refs.libraryScanProgressBar.setAttribute("aria-valuemax", String(ariaMaximum));
-      refs.libraryScanProgressBar.setAttribute("aria-valuenow", String(ariaMaximum ? Math.min(completed, ariaMaximum) : 0));
-      refs.libraryScanProgressBar.setAttribute("aria-valuetext", total
-        ? `${completed} of ${total}`
-        : estimatedTotal ? `${completed} of approximately ${estimatedTotal} discovered sources` : `${completed} discovered sources`);
-      refs.libraryScanProgressFill.style.width = `${total ? Math.min(100, Math.round((completed / total) * 100)) : estimatedTotal ? Math.min(100, Math.round((completed / estimatedTotal) * 100)) : 0}%`;
-    }, 125);
-  }
-}
-
-function applyLibraryOperationState(operationState = {}) {
-  const jobId = Number(operationState.jobId || 0);
-  if (operationState.active) {
-    state.libraryOperationActive = true;
-    state.libraryOperationCancelling = Boolean(operationState.cancelling);
-    state.libraryOperationId = jobId;
-    if (operationState.progress) applyLibraryProgress(operationState.progress);
-    if (operationState.cancelling) {
-      state.libraryScanStatus = "Cancelling…";
-      refs.libraryScanStatus.textContent = state.libraryScanStatus;
-      refs.libraryCancelButton.disabled = true;
-    }
-    renderAll();
-  } else {
-    if (jobId && state.libraryOperationId && jobId !== state.libraryOperationId) return;
-    state.libraryOperationActive = false;
-    state.libraryOperationCancelling = false;
-    state.libraryOperationId = jobId || state.libraryOperationId;
-    state.libraryScanProgress = null;
-    state.libraryScanCurrentFile = "";
-    if (libraryProgressRenderTimer) {
-      window.clearTimeout(libraryProgressRenderTimer);
-      libraryProgressRenderTimer = 0;
-    }
-    renderAll();
-  }
-}
-
 function formatArchiveCacheSummary(summary) {
   const size = `${(Number(summary?.byteCount || 0) / (1024 * 1024)).toFixed(1)} MB`;
   const limit = Number(summary?.limitBytes || state.archiveCacheLimitBytes || 0);
@@ -1663,8 +1542,6 @@ function renderAll() {
   refs.applicationMonospaceCheckbox.checked = state.applicationMonospace;
   refs.playlistHeaderBoldCheckbox.checked = state.playlistHeaderBold;
   refs.columnAutoSizeCheckbox.checked = state.columnAutoSize;
-  refs.libraryDeepScanCheckbox.checked = state.libraryDeepScanEnabled;
-  refs.libraryDeepScanCheckbox.disabled = state.libraryOperationActive;
   refs.archiveCacheEnabledCheckbox.checked = state.archiveCacheEnabled;
   refs.archiveCacheLimitSelect.value = String(state.archiveCacheLimitBytes);
   refs.archiveCacheLimitSelect.disabled = !state.archiveCacheEnabled;
@@ -1682,43 +1559,15 @@ function renderAll() {
   refs.repeatButton.setAttribute("aria-pressed", state.repeatMode === "off" ? "false" : "true");
   refs.repeatButton.title = repeatTitles[state.repeatMode];
   refs.repeatButton.setAttribute("aria-label", repeatTitles[state.repeatMode]);
-  refs.libraryScanStatus.textContent = state.libraryScanStatus;
   refs.libraryDatabasePath.value = state.databaseLocation?.configuredPath || "";
   refs.libraryDatabaseLocationStatus.textContent = state.databaseLocationStatus || "The shared MediaScanner catalog is opened read-only. A changed location is applied after restarting SPCBoy.";
-  const databaseReadOnly = Boolean(state.databaseLocation?.readOnly);
-  refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
-  refs.libraryScanStatusPanel.classList.toggle("is-hidden", !state.libraryOperationActive && state.libraryScanStatus === "No scan started.");
-  refs.libraryCancelButton.disabled = !state.libraryOperationActive || state.libraryOperationCancelling;
-  refs.libraryAddRootButton.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryToggleRootsButton.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryScanAllButton.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryDeepScanCheckbox.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryTrimMissingButton.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryPurgeUnlinkedButton.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryClearDatabaseButton.disabled = state.libraryOperationActive || databaseReadOnly;
-  refs.libraryClearCacheButton.disabled = state.libraryOperationActive;
-  const progress = state.libraryScanProgress;
-  const progressTotal = Number(progress?.total || 0);
-  const estimatedProgressTotal = Number(progress?.estimatedTotal || 0);
-  const progressCompleted = Number(progress?.completed || 0);
-  refs.libraryScanProgressBar.classList.toggle("is-collapsed", !progress);
-  refs.libraryScanProgressBar.classList.toggle("is-preparing", Boolean(progress) && !progressTotal && !estimatedProgressTotal);
-  refs.libraryScanProgressBar.classList.toggle("is-estimated", Boolean(progress) && !progressTotal && estimatedProgressTotal > 0);
-  const ariaProgressMaximum = progressTotal || estimatedProgressTotal;
-  refs.libraryScanProgressBar.setAttribute("aria-valuemax", String(ariaProgressMaximum));
-  refs.libraryScanProgressBar.setAttribute("aria-valuenow", String(ariaProgressMaximum ? Math.min(progressCompleted, ariaProgressMaximum) : 0));
-  refs.libraryScanProgressBar.setAttribute("aria-valuetext", progressTotal
-    ? `${progressCompleted} of ${progressTotal}`
-    : estimatedProgressTotal ? `${progressCompleted} of approximately ${estimatedProgressTotal} discovered sources` : `${progressCompleted} discovered sources`);
-  refs.libraryScanProgressFill.style.width = `${progressTotal ? Math.min(100, Math.round((progressCompleted / progressTotal) * 100)) : estimatedProgressTotal ? Math.min(100, Math.round((progressCompleted / estimatedProgressTotal) * 100)) : 0}%`;
+  refs.libraryClearCacheButton.disabled = false;
   const maintenance = state.databaseMaintenanceSummary;
   refs.databaseIndexedTrackCount.textContent = maintenance ? String(maintenance.indexedTrackCount) : "—";
   refs.databaseUnlinkedSourceCount.textContent = maintenance ? String(maintenance.unlinkedSourceCount) : "—";
   refs.databaseUnlinkedTrackCount.textContent = maintenance ? String(maintenance.unlinkedTrackCount) : "—";
   refs.databaseCacheSummary.textContent = maintenance?.archiveCache ? formatArchiveCacheSummary(maintenance.archiveCache) : "—";
   refs.consoleViewCheckbox.checked = state.consoleViewEnabled;
-  refs.preferEmbeddedConsoleTagsCheckbox.checked = state.preferEmbeddedConsoleTags;
-  refs.preferEmbeddedConsoleTagsCheckbox.disabled = databaseReadOnly;
   refs.equalizerEnabledCheckbox.checked = state.equalizerEnabled;
   refs.equalizerToolbarButton.classList.toggle("is-selected", state.equalizerEnabled);
   refs.equalizerToolbarButton.setAttribute("aria-pressed", state.equalizerEnabled ? "true" : "false");
@@ -1743,11 +1592,9 @@ function renderAll() {
       const displayName = root.path.split(/[\\/]/).filter(Boolean).pop() || root.path;
       return `
       <div class="library-root-row" data-root-id="${root.id}">
-        <div class="library-root-main"><label title="${escapeHtml(root.path)}"><input class="library-root-enabled" type="checkbox" ${root.is_enabled ? "checked" : ""} ${databaseReadOnly ? "disabled" : ""}> ${health}<span class="library-root-name">${escapeHtml(displayName)}</span></label></div>
+        <div class="library-root-main" title="${escapeHtml(root.path)}">${health}<span class="library-root-name">${escapeHtml(displayName)}</span></div>
         <div class="library-root-actions">
-          <button class="tool-button glyph-button library-root-scan" type="button" title="Scan folder" aria-label="Scan folder" ${databaseReadOnly ? "disabled" : ""}><svg class="ui-icon" aria-hidden="true"><use href="#icon-scan-search"></use></svg></button>
           <button class="tool-button glyph-button library-root-log" type="button" title="Open scan log" aria-label="Open scan log"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scroll-text"></use></svg></button>
-          <button class="tool-button glyph-button library-root-remove" type="button" title="Delete folder" aria-label="Delete folder" ${databaseReadOnly ? "disabled" : ""}><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash-2"></use></svg></button>
         </div>
       </div>`;
     }).join("")
@@ -1761,10 +1608,7 @@ function renderAll() {
   refs.libraryRootList.querySelectorAll(".library-root-row").forEach((row) => {
     const rootId = Number(row.dataset.rootId);
     const root = state.libraryRoots.find((entry) => Number(entry.id) === rootId);
-    row.querySelector(".library-root-enabled")?.addEventListener("change", (event) => void uiApp.ui.setLibraryRootEnabled(rootId, event.target.checked));
-    row.querySelector(".library-root-scan")?.addEventListener("click", () => void uiApp.ui.scanLibraryRoot(rootId));
     row.querySelector(".library-root-log")?.addEventListener("click", () => showScanLog(root));
-    row.querySelector(".library-root-remove")?.addEventListener("click", () => void uiApp.ui.removeLibraryRoot(rootId));
   });
 }
 
@@ -2093,23 +1937,6 @@ function setConsoleViewEnabled(enabled, broadcast = true) {
   renderAll();
 }
 
-async function setPreferEmbeddedConsoleTags(enabled) {
-  const previous = state.preferEmbeddedConsoleTags;
-  state.preferEmbeddedConsoleTags = Boolean(enabled);
-  persistSettings();
-  renderAll();
-  try {
-    await window.spcBoy?.configureConsoleTagPreference?.(state.preferEmbeddedConsoleTags);
-    await refreshDatabaseGamesForVisibleRoots();
-    renderSidebar();
-  } catch (error) {
-    state.preferEmbeddedConsoleTags = previous;
-    persistSettings();
-    renderAll();
-    throw error;
-  }
-}
-
 function commitFontSizeInput(rawValue) {
   const parsedValue = uiApp.parseNumericInput(rawValue);
   state.uiFontSizePt = uiApp.normalizeFontSize(parsedValue ?? state.uiFontSizePt);
@@ -2257,9 +2084,6 @@ async function bootstrap() {
     ? "Restart SPCBoy to use the selected database."
     : "The shared MediaScanner catalog is active and opened read-only.";
   if (window.spcBoy?.isOptionsWindow) renderAll();
-  else if (!state.databaseLocation?.readOnly) {
-    await window.spcBoy?.configureConsoleTagPreference?.(state.preferEmbeddedConsoleTags);
-  }
   await window.spcBoy?.configureArchiveCache?.({
     enabled: state.archiveCacheEnabled,
     limitBytes: state.archiveCacheLimitBytes
@@ -2297,15 +2121,6 @@ async function bootstrap() {
   persistSettings();
   if (window.spcBoy?.isOptionsWindow) {
     await uiApp.ui.refreshLibraryRoots();
-    const operationState = await window.spcBoy.libraryOperationState?.();
-    if (operationState?.active) applyLibraryOperationState(operationState);
-    else if (operationState?.scratchRecovery?.recoveredRootCount || operationState?.playbackScratchRecovery?.recoveredRootCount) {
-      const recovery = operationState.scratchRecovery;
-      const playbackRecovery = operationState.playbackScratchRecovery;
-      const recoveredRoots = Number(recovery?.recoveredRootCount || 0) + Number(playbackRecovery?.recoveredRootCount || 0);
-      const recoveredBytes = Number(recovery?.recoveredBytes || 0) + Number(playbackRecovery?.recoveredBytes || 0);
-      state.libraryScanStatus = `Recovered ${recoveredRoots} abandoned archive scratch root${recoveredRoots === 1 ? "" : "s"} • ${(recoveredBytes / (1024 * 1024)).toFixed(0)} MB reclaimed`;
-    }
   } else if (window.spcBoy?.databaseRoots) {
     state.libraryRoots = await window.spcBoy.databaseRoots();
     await uiApp.ui.handleLibraryRootsChanged(state.libraryRoots);
@@ -2410,7 +2225,6 @@ uiApp.ui = {
   setSidebarWidth,
   setAccentColor,
   setConsoleViewEnabled,
-  setPreferEmbeddedConsoleTags,
   commitFontSizeInput,
   commitSidebarFontSizeInput,
   setSidebarTextColor,
@@ -2428,11 +2242,8 @@ uiApp.ui = {
   setOptionsOpen,
   setAllDatabaseConsolesCollapsed,
   setAllSidebarNodesCollapsed,
-  applyLibraryProgress,
-  applyLibraryOperationState,
   refreshDatabaseGamesForVisibleRoots,
   updateSidebarSearch,
-  handleLibraryDatabaseChanged,
   loadDatabaseGames,
   loadDatabaseGame,
   activateDatabaseSelection,

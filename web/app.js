@@ -252,9 +252,6 @@ refs.consoleViewCheckbox.addEventListener("change", (event) => {
   app.ui.setConsoleViewEnabled(event.target.checked);
 });
 
-refs.preferEmbeddedConsoleTagsCheckbox.addEventListener("change", (event) => {
-  app.ui.setPreferEmbeddedConsoleTags(event.target.checked).catch((error) => console.error("[SPCBoy] console-tag preference failed", error));
-});
 
 if (window.spcBoy?.onConsoleViewChanged) {
   window.spcBoy.onConsoleViewChanged((enabled) => {
@@ -370,36 +367,6 @@ refs.optionsPlaybackTab.addEventListener("click", () => {
   app.ui.renderAll();
 });
 
-refs.libraryAddRootButton.addEventListener("click", () => {
-  app.ui.addLibraryRoot().catch((error) => console.error(error));
-});
-
-refs.libraryToggleRootsButton.addEventListener("click", () => {
-  app.ui.selectAllLibraryRoots().catch((error) => console.error(error));
-});
-
-refs.libraryScanAllButton.addEventListener("click", () => {
-  app.ui.scanSelectedLibraries(state.libraryDeepScanEnabled).catch((error) => console.error(error));
-});
-
-refs.libraryDeepScanCheckbox.addEventListener("change", (event) => {
-  state.libraryDeepScanEnabled = event.target.checked;
-  app.persistSettings();
-  app.ui.renderAll();
-});
-
-refs.libraryTrimMissingButton.addEventListener("click", () => {
-  app.ui.trimMissingLibrary().catch((error) => console.error(error));
-});
-
-refs.libraryPurgeUnlinkedButton.addEventListener("click", () => {
-  app.ui.purgeUnlinkedLibrary().catch((error) => console.error(error));
-});
-
-refs.libraryClearDatabaseButton.addEventListener("click", () => {
-  app.ui.clearLibraryDatabase().catch((error) => console.error(error));
-});
-
 refs.libraryClearCacheButton.addEventListener("click", () => {
   app.ui.clearLibraryArchiveCache().catch((error) => console.error(error));
 });
@@ -410,28 +377,6 @@ refs.archiveCacheEnabledCheckbox.addEventListener("change", (event) => {
 
 refs.archiveCacheLimitSelect.addEventListener("change", (event) => {
   app.ui.setArchiveCacheLimit(event.target.value);
-});
-
-refs.libraryCancelButton.addEventListener("click", () => {
-  app.ui.cancelLibraryOperation().catch((error) => console.error(error));
-});
-
-if (window.spcBoy?.onLibraryScanProgress) {
-  window.spcBoy.onLibraryScanProgress((progress) => {
-    app.ui.applyLibraryProgress(progress);
-  });
-}
-
-window.spcBoy?.onLibraryOperationState?.((operationState) => {
-  app.ui.applyLibraryOperationState(operationState);
-});
-
-window.spcBoy?.onLibraryRootsChanged?.((roots) => {
-  app.ui.handleLibraryRootsChanged(roots).catch((error) => console.error("[SPCBoy] library roots update failed", error));
-});
-
-window.spcBoy?.onLibraryDatabaseChanged?.((change) => {
-  app.ui.handleLibraryDatabaseChanged(change).catch((error) => console.error("[SPCBoy] library database update failed", error));
 });
 
 refs.optionsOverlay.addEventListener("click", (event) => {

@@ -1,4 +1,4 @@
-const SCAN_STAGES = Object.freeze([
+const MEDIA_OPERATION_STAGES = Object.freeze([
   "discovery",
   "archiveListing",
   "materialization",
@@ -8,7 +8,7 @@ const SCAN_STAGES = Object.freeze([
   "persistence"
 ]);
 
-const SCAN_STATES = Object.freeze([
+const MEDIA_OPERATION_STATES = Object.freeze([
   "successful",
   "unsupported",
   "failed",
@@ -17,7 +17,7 @@ const SCAN_STATES = Object.freeze([
   "archiveCompleted"
 ]);
 
-function createScanOutcome({
+function createMediaOutcome({
   identity,
   route = null,
   stage,
@@ -25,8 +25,8 @@ function createScanOutcome({
   durationMs = 0,
   message = ""
 }) {
-  if (!SCAN_STAGES.includes(stage)) throw new Error(`Unknown scan stage: ${stage}`);
-  if (!SCAN_STATES.includes(state)) throw new Error(`Unknown scan state: ${state}`);
+  if (!MEDIA_OPERATION_STAGES.includes(stage)) throw new Error(`Unknown media-operation stage: ${stage}`);
+  if (!MEDIA_OPERATION_STATES.includes(state)) throw new Error(`Unknown media-operation state: ${state}`);
   return Object.freeze({
     identity: Object.freeze({
       rootPath: identity?.rootPath || "",
@@ -41,7 +41,7 @@ function createScanOutcome({
   });
 }
 
-function formatScanOutcome(outcome) {
+function formatMediaOutcome(outcome) {
   const identity = outcome.identity.archiveEntry
     ? `${outcome.identity.sourcePath}#${outcome.identity.archiveEntry}`
     : outcome.identity.sourcePath;
@@ -50,7 +50,7 @@ function formatScanOutcome(outcome) {
   return `${identity}${backend}: ${outcome.stage}${detail}`;
 }
 
-function summarizeScanOutcomes(outcomes) {
+function summarizeMediaOutcomes(outcomes) {
   return outcomes.reduce((summary, outcome) => {
     summary.total += 1;
     summary.byStage[outcome.stage] = (summary.byStage[outcome.stage] || 0) + 1;
@@ -68,9 +68,9 @@ function summarizeScanOutcomes(outcomes) {
 }
 
 module.exports = {
-  SCAN_STAGES,
-  SCAN_STATES,
-  createScanOutcome,
-  formatScanOutcome,
-  summarizeScanOutcomes
+  MEDIA_OPERATION_STAGES,
+  MEDIA_OPERATION_STATES,
+  createMediaOutcome,
+  formatMediaOutcome,
+  summarizeMediaOutcomes
 };

@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-test("main process owns one runtime and does not load the dormant catalog scanner", () => {
+test("main process owns one runtime and exposes only a canonical catalog reader", () => {
   const mainSource = fs.readFileSync(path.join(__dirname, "..", "electron", "main.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "electron", "preload.js"), "utf8");
   const rendererSource = fs.readFileSync(path.join(__dirname, "..", "web", "app-library.js"), "utf8");
@@ -11,12 +11,13 @@ test("main process owns one runtime and does not load the dormant catalog scanne
   assert.match(mainSource, /requestSingleInstanceLock\(\)/);
   assert.match(mainSource, /new CanonicalLibraryReader\(configuredLibraryDatabasePath\(\)\)/);
   assert.doesNotMatch(mainSource, /require\("\.\/library-scan-service"\)/);
-  assert.match(mainSource, /ipcMain\.handle\("library:database-scan", async \(\) => \{\s*assertLibraryDatabaseWritable\(\);/);
+  assert.doesNotMatch(mainSource, /library:database-(?:scan|trim-missing|clear|purge-unlinked|remove-root|set-root|move-root)/);
   assert.doesNotMatch(mainSource, /libraryDatabase\.loadRoot\(rootId\)/);
   assert.doesNotMatch(mainSource, /library:database-add-root/);
   assert.doesNotMatch(preloadSource, /databaseAddRoot/);
-  assert.match(preloadSource, /scanDatabaseRoot: \(rootId[\s\S]*Number\(rootId\)/);
-  assert.match(rendererSource, /scanDatabaseRoot\(root\.id, deepScan\)/);
+  assert.doesNotMatch(preloadSource, /scanDatabaseRoot|trimMissingDatabaseSources|clearLibraryDatabase/);
+  assert.doesNotMatch(rendererSource, /scanDatabaseRoot|trimMissingDatabaseSources|clearLibraryDatabase/);
+  assert.match(preloadSource, /chooseDatabaseLocation/);
 });
 
 test("window focus raises only the requested window and sidebar search is mode independent", () => {

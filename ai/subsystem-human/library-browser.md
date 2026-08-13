@@ -29,7 +29,7 @@
 
 ## Library Index
 
-- SPCBoy reads library roots, game buckets, tracks, and metadata from the shared CocoaSpice schema-23 catalog without migrating or writing it.
+- SPCBoy reads library roots, game buckets, tracks, and metadata from the shared MediaScanner schema-23 catalog through a read-only SQLite connection, without creating, migrating, or writing it.
 - Options / Database selects and validates the catalog path, shows library and archive-cache statistics, and reports when restart is required. Archive Cache remains SPCBoy-owned playback state and can still be configured or cleared while playback is stopped.
 - Options / Library shows the catalog's configured roots. Root mutation, scans, Test Files, and destructive database maintenance are disabled because MediaScanner is the sole catalog-writer boundary.
 - Database: ZIP-, 7z-, RSN-, and TZST-contained supported audio files appear as playable indexed tracks, including expanded internal songs from multi-track NSF and GBS files.
@@ -42,5 +42,5 @@
 ## Files
 
 - [electron/main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
-- [electron/library-database.js](/Users/john/Downloads/Code/SPCBoy/electron/library-database.js)
+- [electron/canonical-library-reader.js](/Users/john/Downloads/Code/SPCBoy/electron/canonical-library-reader.js)
 - [web/app-ui.js](/Users/john/Downloads/Code/SPCBoy/web/app-ui.js)

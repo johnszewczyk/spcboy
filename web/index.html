@@ -126,7 +126,6 @@
                 <div class="options-subpanel-title">Sidebar Options</div>
                 <label class="options-field"><span>Sidebar Width</span><span class="options-inline-trailing"><input id="sidebar-width-input" class="options-input" type="text" inputmode="numeric" value="20" aria-label="Sidebar width percent" /></span></label>
                 <label class="options-field options-inline-field"><span>Console View</span><input id="console-view-checkbox" type="checkbox" /></label>
-                <label class="options-field options-inline-field"><span class="options-inline-leading"><input id="prefer-embedded-console-tags-checkbox" type="checkbox" /><span class="options-checkbox-copy"><span>Prefer Embedded Console Tags</span><small>Use decoded console tags before recognized collection filenames and folders.</small></span></span></label>
                 <label class="options-field options-inline-field"><span>Path Counts</span><input id="sidebar-path-counts-checkbox" type="checkbox" checked /></label>
               </div>
               <div class="options-subpanel">
@@ -145,25 +144,9 @@
 
             <div id="options-library-section" class="options-page options-library-page">
               <div class="options-subpanel">
-                <div class="options-subpanel-title">Library Paths</div>
-                <div class="options-library-toolbar">
-                  <button id="library-add-root-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-folder-plus"></use></svg><span>Add Folder</span></button>
-                  <button id="library-toggle-roots-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-check-check"></use></svg><span>Select All</span></button>
-                  <button id="library-scan-all-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scan-search"></use></svg><span>Scan Selected</span></button>
-                  <button id="library-trim-missing-button" class="tool-button icon-text-button" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-file-search"></use></svg><span>Test Files</span></button>
-                </div>
+                <div class="options-subpanel-title">MediaScanner Roots</div>
+                <p>Library roots and metadata are managed by MediaScanner. SPCBoy reads the selected catalog without modifying it.</p>
                 <div id="library-root-list" class="library-root-list"></div>
-              </div>
-              <div class="options-subpanel">
-                <div class="options-subpanel-title">Scan Options</div>
-                <label class="options-field options-inline-field"><span class="options-inline-leading"><input id="library-deep-scan-checkbox" type="checkbox" /><span class="options-checkbox-copy"><span>Deep Scan</span><small>Reinspect every source, bypassing the saved completion and source-fingerprint checks.</small></span></span></label>
-              </div>
-              <div id="library-scan-status-panel" class="options-subpanel library-scan-status-panel is-hidden">
-                <div class="options-subpanel-title">Scan Status</div>
-                <div id="library-scan-status" class="library-scan-status" aria-live="polite">No scan started.</div>
-                <div id="library-scan-current-file" class="library-scan-current-file"></div>
-                <div id="library-scan-progress-bar" class="library-scan-progress-bar" role="progressbar" aria-label="Library scan progress" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><span id="library-scan-progress-fill"></span></div>
-                <button id="library-cancel-button" class="tool-button library-scan-cancel-button" type="button" disabled>Cancel Scan</button>
               </div>
             </div>
 
@@ -181,12 +164,7 @@
                   <div class="database-stat"><span>Unlinked Sources</span><strong id="database-unlinked-source-count">—</strong></div>
                   <div class="database-stat"><span>Unlinked Tracks</span><strong id="database-unlinked-track-count">—</strong></div>
                 </div>
-                <p><strong>Unlinked</strong> records belong to files that are no longer present at their last known path. Test Files marks them for retention; Clear Unlinked removes those retained records.</p>
-                <p><strong>Database</strong> records preserve scan results and metadata so unchanged files can be reused quickly on later scans. Clearing it removes indexed records but keeps configured library folders.</p>
-                <div class="options-library-toolbar">
-                  <button id="library-purge-unlinked-button" class="tool-button" type="button">Clear Unlinked</button>
-                  <button id="library-clear-database-button" class="tool-button" type="button">Clear Database</button>
-                </div>
+                <p>MediaScanner is the sole catalog writer. Use its GUI or CLI to add roots, rescan sources, or perform database maintenance.</p>
               </div>
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Archive Cache</div>
@@ -195,7 +173,7 @@
                 </div>
                 <label class="options-field options-inline-field"><span class="options-inline-leading"><input id="archive-cache-enabled-checkbox" type="checkbox" checked /><span class="options-checkbox-copy"><span>Keep Archive Cache</span><small>Retain recently played archive members for faster repeat playback. Disabled uses disposable files removed when playback stops.</small></span></span></label>
                 <label class="options-field options-inline-field"><span class="options-inline-leading"><span class="options-checkbox-copy"><span>Cache Limit</span><small>Least-recently-used archive entries are removed automatically. Active playback is never removed.</small></span></span><span class="options-inline-trailing"><select id="archive-cache-limit-select" class="options-input" aria-label="Archive cache size limit"><option value="536870912">512 MB</option><option value="1073741824">1 GB</option><option value="2147483648" selected>2 GB</option><option value="4294967296">4 GB</option></select></span></label>
-                <p><strong>Scanner scratch files are separate:</strong> they are disposable, budgeted, and reclaimed after every scan or on the next launch after an interruption.</p>
+                <p><strong>MediaScanner scratch files are separate:</strong> they are disposable and reclaimed after each source or after cancellation.</p>
                 <div class="options-library-toolbar options-library-toolbar-single">
                   <button id="library-clear-cache-button" class="tool-button" type="button">Clear Cache</button>
                 </div>

@@ -4,7 +4,7 @@ const fs = require("node:fs").promises;
 const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
-const { readSpcMetadata, readVgmMetadata, readPsfMetadataBuffer } = require("../electron/scan-metadata-shortcuts");
+const { readSpcMetadata, readVgmMetadata, readPsfMetadataBuffer } = require("../electron/direct-metadata-readers");
 
 test("reads SPC ID666 metadata without a decoder", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-scan-shortcut-"));

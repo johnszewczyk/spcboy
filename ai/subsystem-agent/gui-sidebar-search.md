@@ -26,7 +26,7 @@
 - [web/sidebar-view-state.js](/Users/john/Downloads/Code/SPCBoy/web/sidebar-view-state.js)
 - [main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [preload.js](/Users/john/Downloads/Code/SPCBoy/electron/preload.js)
-- [library-database.js](/Users/john/Downloads/Code/SPCBoy/electron/library-database.js)
+- [canonical-library-reader.js](/Users/john/Downloads/Code/SPCBoy/electron/canonical-library-reader.js)
 - [latest-request-coalescer.js](/Users/john/Downloads/Code/SPCBoy/electron/latest-request-coalescer.js)
 - [Cross-app search-view fixture](/Users/john/Downloads/Code/SPCBoy/test/cross-app-sidebar-search-view-v1.json)
 - [Sister-app conformance contract](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-conformance.md)

@@ -40,7 +40,7 @@ const VGMSTREAM_COMPLETE_EXTENSIONS = new Set([".hd", ".hbd", ".iecs", ".txtp"])
 const DEPENDENCY_ARCHIVE_EXTENSIONS = new Set([...USF_ARCHIVE_EXTENSIONS, ...GSF_ARCHIVE_EXTENSIONS, ...TWOSF_ARCHIVE_EXTENSIONS, ...PSF_ARCHIVE_EXTENSIONS, ...VGMSTREAM_COMPLETE_EXTENSIONS]);
 const materializationPromises = new Map();
 const archiveCacheGate = new ArchiveCacheGate();
-const SCAN_SCRATCH_PREFIX = "spcboy-scan-scratch-";
+const INSPECTION_SCRATCH_PREFIX = "spcboy-playlist-inspection-scratch-";
 const PLAYBACK_SCRATCH_PREFIX = "spcboy-playback-scratch-";
 const DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
 const MIN_ARCHIVE_CACHE_LIMIT_BYTES = 128 * 1024 * 1024;
@@ -48,15 +48,15 @@ const MAX_ARCHIVE_CACHE_LIMIT_BYTES = 16 * 1024 * 1024 * 1024;
 const PLAYBACK_SCRATCH_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const PLAYBACK_SCRATCH_MIN_FREE_BYTES = 1024 * 1024 * 1024;
 const SCRATCH_OWNER_FILE = ".spcboy-owner.json";
-const activeScanScratchRoots = new Set();
+const activeInspectionScratchRoots = new Set();
 const activePlaybackScratchRoots = new Set();
 
-function scanScratchParentPath() {
-  return process.env.SPCBOY_SCAN_SCRATCH_ROOT || os.tmpdir();
+function inspectionScratchParentPath() {
+  return process.env.SPCBOY_INSPECTION_SCRATCH_ROOT || os.tmpdir();
 }
 
-function isScanScratchRoot(rootPath) {
-  return path.dirname(rootPath) === scanScratchParentPath() && path.basename(rootPath).startsWith(SCAN_SCRATCH_PREFIX);
+function isInspectionScratchRoot(rootPath) {
+  return path.dirname(rootPath) === inspectionScratchParentPath() && path.basename(rootPath).startsWith(INSPECTION_SCRATCH_PREFIX);
 }
 
 async function directoryByteCount(rootPath) {
@@ -93,35 +93,35 @@ async function scratchOwnerIsLive(rootPath) {
   }
 }
 
-async function createScanScratchRoot() {
-  await fs.mkdir(scanScratchParentPath(), { recursive: true });
-  const rootPath = await fs.mkdtemp(path.join(scanScratchParentPath(), SCAN_SCRATCH_PREFIX));
+async function createInspectionScratchRoot() {
+  await fs.mkdir(inspectionScratchParentPath(), { recursive: true });
+  const rootPath = await fs.mkdtemp(path.join(inspectionScratchParentPath(), INSPECTION_SCRATCH_PREFIX));
   try {
     await writeScratchOwner(rootPath);
   } catch (error) {
     await fs.rm(rootPath, { recursive: true, force: true });
     throw error;
   }
-  activeScanScratchRoots.add(rootPath);
+  activeInspectionScratchRoots.add(rootPath);
   return rootPath;
 }
 
-async function removeScanScratchRoot(rootPath) {
-  if (!isScanScratchRoot(rootPath)) throw new Error(`Refusing to remove non-scan scratch root: ${rootPath}`);
+async function removeInspectionScratchRoot(rootPath) {
+  if (!isInspectionScratchRoot(rootPath)) throw new Error(`Refusing to remove non-inspection scratch root: ${rootPath}`);
   try {
     await fs.rm(rootPath, { recursive: true, force: true });
   } finally {
-    activeScanScratchRoots.delete(rootPath);
+    activeInspectionScratchRoots.delete(rootPath);
   }
 }
 
 function isPlaybackScratchRoot(rootPath) {
-  return path.dirname(rootPath) === scanScratchParentPath() && path.basename(rootPath).startsWith(PLAYBACK_SCRATCH_PREFIX);
+  return path.dirname(rootPath) === inspectionScratchParentPath() && path.basename(rootPath).startsWith(PLAYBACK_SCRATCH_PREFIX);
 }
 
 async function createPlaybackScratchRoot() {
-  await fs.mkdir(scanScratchParentPath(), { recursive: true });
-  const rootPath = await fs.mkdtemp(path.join(scanScratchParentPath(), PLAYBACK_SCRATCH_PREFIX));
+  await fs.mkdir(inspectionScratchParentPath(), { recursive: true });
+  const rootPath = await fs.mkdtemp(path.join(inspectionScratchParentPath(), PLAYBACK_SCRATCH_PREFIX));
   try {
     await writeScratchOwner(rootPath);
   } catch (error) {
@@ -141,35 +141,35 @@ async function removePlaybackScratchRoot(rootPath) {
   }
 }
 
-async function scanScratchSummary() {
-  const roots = [...activeScanScratchRoots];
+async function inspectionScratchSummary() {
+  const roots = [...activeInspectionScratchRoots];
   const activeBytes = (await Promise.all(roots.map((rootPath) => directoryByteCount(rootPath).catch(() => 0))))
     .reduce((total, bytes) => total + bytes, 0);
   return { activeRootCount: roots.length, activeBytes };
 }
 
-async function recoverAbandonedScanScratchRoots() {
+async function recoverAbandonedInspectionScratchRoots() {
   const recovered = { recoveredRootCount: 0, recoveredBytes: 0 };
-  const entries = await fs.readdir(scanScratchParentPath(), { withFileTypes: true }).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
+  const entries = await fs.readdir(inspectionScratchParentPath(), { withFileTypes: true }).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
   for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith(SCAN_SCRATCH_PREFIX)) continue;
-    const rootPath = path.join(scanScratchParentPath(), entry.name);
-    if (activeScanScratchRoots.has(rootPath)) continue;
+    if (!entry.isDirectory() || !entry.name.startsWith(INSPECTION_SCRATCH_PREFIX)) continue;
+    const rootPath = path.join(inspectionScratchParentPath(), entry.name);
+    if (activeInspectionScratchRoots.has(rootPath)) continue;
     if (await scratchOwnerIsLive(rootPath)) continue;
     const bytes = await directoryByteCount(rootPath).catch(() => 0);
     await fs.rm(rootPath, { recursive: true, force: true });
     recovered.recoveredRootCount += 1;
     recovered.recoveredBytes += bytes;
   }
-  return { ...recovered, ...await scanScratchSummary() };
+  return { ...recovered, ...await inspectionScratchSummary() };
 }
 
 async function recoverAbandonedPlaybackScratchRoots() {
   const recovered = { recoveredRootCount: 0, recoveredBytes: 0 };
-  const entries = await fs.readdir(scanScratchParentPath(), { withFileTypes: true }).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
+  const entries = await fs.readdir(inspectionScratchParentPath(), { withFileTypes: true }).catch((error) => error.code === "ENOENT" ? [] : Promise.reject(error));
   for (const entry of entries) {
     if (!entry.isDirectory() || !entry.name.startsWith(PLAYBACK_SCRATCH_PREFIX)) continue;
-    const rootPath = path.join(scanScratchParentPath(), entry.name);
+    const rootPath = path.join(inspectionScratchParentPath(), entry.name);
     if (activePlaybackScratchRoots.has(rootPath)) continue;
     if (await scratchOwnerIsLive(rootPath)) continue;
     const bytes = await directoryByteCount(rootPath).catch(() => 0);
@@ -181,7 +181,7 @@ async function recoverAbandonedPlaybackScratchRoots() {
 }
 
 async function availableScratchBytes() {
-  const stat = await fs.statfs(scanScratchParentPath());
+  const stat = await fs.statfs(inspectionScratchParentPath());
   return Number(stat.bavail) * Number(stat.bsize);
 }
 
@@ -474,11 +474,11 @@ async function decompressTarZstandard(archivePath, parentRoot = null, options = 
 
 async function listTarZstandardEntries(archivePath, options = {}) {
   await options.ensureCapacity?.(archivePath);
-  const scannerOwned = options.scratchOwner === "scan";
-  const scratchRoot = scannerOwned ? await createScanScratchRoot() : await createPlaybackScratchRoot();
+  const inspectionOwned = options.scratchOwner === "inspection";
+  const scratchRoot = inspectionOwned ? await createInspectionScratchRoot() : await createPlaybackScratchRoot();
   const scratchOptions = {
     ...options,
-    reserveBytes: scannerOwned
+    reserveBytes: inspectionOwned
       ? disposableMaterializationReserve(options.reserveScratchBytes, scratchRoot)
       : disposableMaterializationReserve()
   };
@@ -495,7 +495,7 @@ async function listTarZstandardEntries(archivePath, options = {}) {
       await fs.rm(temporaryRoot, { recursive: true, force: true });
     }
   } finally {
-    if (scannerOwned) await removeScanScratchRoot(scratchRoot);
+    if (inspectionOwned) await removeInspectionScratchRoot(scratchRoot);
     else await removePlaybackScratchRoot(scratchRoot);
     await options.onScratchReleased?.();
   }
@@ -845,12 +845,12 @@ async function materializeDependencySetEntryIntoRoot(archivePath, selectedEntry,
   return outputPath;
 }
 
-async function materializeArchiveEntryForScan(archivePath, selectedEntry, options = {}) {
+async function materializeArchiveEntryForInspection(archivePath, selectedEntry, options = {}) {
   if (!isSafeEntry(selectedEntry)) throw new Error(`Unsafe archive entry path: ${selectedEntry}`);
-  const scratchRoot = await createScanScratchRoot();
+  const scratchRoot = await createInspectionScratchRoot();
   const scratchOptions = {
     ...options,
-    scratchOwner: "scan",
+    scratchOwner: "inspection",
     reserveScratchBytes: options.reserveBytes,
     reserveBytes: disposableMaterializationReserve(options.reserveBytes, scratchRoot)
   };
@@ -867,10 +867,10 @@ async function materializeArchiveEntryForScan(archivePath, selectedEntry, option
     }
     return {
       path: playablePath,
-      cleanup: () => removeScanScratchRoot(scratchRoot)
+      cleanup: () => removeInspectionScratchRoot(scratchRoot)
     };
   } catch (error) {
-    await removeScanScratchRoot(scratchRoot);
+    await removeInspectionScratchRoot(scratchRoot);
     throw error;
   }
 }
@@ -897,13 +897,13 @@ async function materializeArchiveEntryForPlayback(archivePath, selectedEntry) {
   }
 }
 
-async function materializeArchiveEntriesForScan(archivePath, selectedEntries, options = {}) {
+async function materializeArchiveEntriesForInspection(archivePath, selectedEntries, options = {}) {
   const entries = [...new Set(selectedEntries || [])];
   if (!entries.every(isSafeEntry)) throw new Error("Unsafe archive entry path");
-  const scratchRoot = await createScanScratchRoot();
+  const scratchRoot = await createInspectionScratchRoot();
   const scratchOptions = {
     ...options,
-    scratchOwner: "scan",
+    scratchOwner: "inspection",
     reserveScratchBytes: options.reserveBytes,
     reserveBytes: disposableMaterializationReserve(options.reserveBytes, scratchRoot)
   };
@@ -913,7 +913,7 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
     // A tar.zst is a single compressed stream. Extracting each member with
     // extractArchiveEntry would restart zstd from byte zero for every PSF,
     // PSF2, or vgmstream member. Keep one decompressed TAR for the whole
-    // archive job, matching CocoaSpice's shared scan materialization model.
+    // playlist request so dependency families are extracted only once.
     if (archiveType(archivePath) === "tzst") {
       const { temporaryRoot, rawTarPath } = await decompressTarZstandard(archivePath, scratchRoot, scratchOptions);
       try {
@@ -967,7 +967,7 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
       return {
         root: scratchRoot,
         paths,
-        cleanup: () => removeScanScratchRoot(scratchRoot)
+        cleanup: () => removeInspectionScratchRoot(scratchRoot)
       };
     }
 
@@ -999,10 +999,10 @@ async function materializeArchiveEntriesForScan(archivePath, selectedEntries, op
     return {
       root: scratchRoot,
       paths,
-      cleanup: () => removeScanScratchRoot(scratchRoot)
+      cleanup: () => removeInspectionScratchRoot(scratchRoot)
     };
   } catch (error) {
-    await removeScanScratchRoot(scratchRoot);
+    await removeInspectionScratchRoot(scratchRoot);
     throw error;
   }
 }
@@ -1075,4 +1075,4 @@ function isArchiveCacheBusy() {
   return archiveCacheGate.isBusy;
 }
 
-module.exports = { archivePlayableEntries, archivePlayableEntriesWithSignature, materializeArchiveEntryForScan, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, materializeZipEntry, listZipEntries, listArchiveEntries, archiveType, isSupportedArchivePath, archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, cacheRootPath, fastSourceSignature, fastArchiveSignature, isArchiveCacheBusy, scanScratchSummary, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, availableScratchBytes, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES };
+module.exports = { archivePlayableEntries, archivePlayableEntriesWithSignature, materializeArchiveEntryForInspection, materializeArchiveEntryForPlayback, materializeArchiveEntriesForInspection, materializeZipEntry, listZipEntries, listArchiveEntries, archiveType, isSupportedArchivePath, archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, cacheRootPath, fastSourceSignature, fastArchiveSignature, isArchiveCacheBusy, inspectionScratchSummary, recoverAbandonedInspectionScratchRoots, recoverAbandonedPlaybackScratchRoots, availableScratchBytes, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES };

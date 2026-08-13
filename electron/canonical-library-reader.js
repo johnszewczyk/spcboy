@@ -31,7 +31,6 @@ class CanonicalLibraryReader {
     this.client = new ClientClass(this.databasePath, { queryOnly: true });
     this.isReadOnly = true;
     this.catalogKind = "media-scanner-canonical";
-    this.lastAtomicScanMetrics = null;
   }
 
   async initialize() {
@@ -72,17 +71,6 @@ class CanonicalLibraryReader {
     const id = Number(rootId);
     if (!Number.isInteger(id) || id <= 0) return null;
     return (await this.client.query(`SELECT * FROM library_roots WHERE id=${sqlNumber(id)} AND is_attached=1 LIMIT 1;`))[0] || null;
-  }
-
-  async indexedSources() {
-    return this.client.query(`
-      SELECT t.root_id AS rootId, COALESCE(t.archive_path, t.path) AS path
-      FROM tracks t JOIN library_roots r ON r.id=t.root_id
-      WHERE r.is_attached=1
-        AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
-      GROUP BY t.root_id, COALESCE(t.archive_path, t.path)
-      ORDER BY t.root_id, path;
-    `);
   }
 
   async deadSourceCount() {
@@ -180,17 +168,6 @@ class CanonicalLibraryReader {
     `);
   }
 
-  readOnlyError() {
-    return new Error("The shared library database is read-only in SPCBoy. Use MediaScanner to modify it.");
-  }
-}
-
-for (const method of [
-  "ensureRoot", "removeRoot", "setRootEnabled", "setRootsEnabled", "moveRoot",
-  "setPreferEmbeddedConsoleTags", "markSourcesDead", "deleteDeadSources", "clearDatabase",
-  "updatePlaylistMetadata"
-]) {
-  CanonicalLibraryReader.prototype[method] = async function readOnlyMutation() { throw this.readOnlyError(); };
 }
 
 module.exports = { CANONICAL_SCHEMA_VERSION, CanonicalLibraryReader };

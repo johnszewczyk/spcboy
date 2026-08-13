@@ -2,9 +2,9 @@ const fs = require("fs").promises;
 const path = require("path");
 const { backendForPath, routeForPath } = require("./playback-core");
 const { detectSpecialWav } = require("./special-audio");
-const { readSpcMetadata, readVgmMetadata, readPsfMetadata } = require("./scan-metadata-shortcuts");
+const { readSpcMetadata, readVgmMetadata, readPsfMetadata } = require("./direct-metadata-readers");
 const { BoundedMetadataCache, metadataFingerprint } = require("./metadata-cache");
-const { createAsyncLimiter, withScanTimeout } = require("./scanner-scheduler");
+const { createAsyncLimiter, withOperationTimeout } = require("./bounded-work");
 
 const DEFAULT_CACHE_MAX_ENTRIES = 2048;
 
@@ -45,7 +45,7 @@ function trackVariantsFromNativeResult(trackPath, result) {
 function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX_ENTRIES }) {
   if (!nativeAudio) throw new Error("Track inspector requires native audio tools");
   const metadataCache = new BoundedMetadataCache(cacheMaxEntries);
-  const backendScanLimiters = new Map();
+  const backendInspectionLimiters = new Map();
 
   async function inspectTrack(trackPath, sourceName = trackPath, { signal = null } = {}) {
     const cacheKey = `${trackPath}\u0000${sourceName}`;
@@ -75,7 +75,7 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
     const vgmstreamMetadata = specialAudio?.kind === "nds-swav"
       ? await nativeAudio.inspectNdsSwav(trackPath, inspectionOptions)
       : backend?.id === "vgmstream" ? await nativeAudio.inspectVgmstream(trackPath, inspectionOptions) : null;
-    // PSF/PSF2 carries the scan metadata in its [TAG] footer. CocoaSpice uses
+    // PSF/PSF2 carries display metadata in its [TAG] footer. Reading it here
     // that shortcut before starting the Play! core; doing both here launched a
     // full PSX inspector for every otherwise-valid member in a JoshW archive.
     const playPsfMetadata = backend?.id === "playpsf" && !psfMetadata
@@ -128,7 +128,7 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
     return trackVariantsFromNativeResult(trackPath, await nativeAudio.inspectAll(trackPath, options));
   }
 
-  async function inspectTrackVariantsForScan(trackPath, sourceName = trackPath, { signal = null } = {}) {
+  async function inspectTrackVariantsForPlaylist(trackPath, sourceName = trackPath, { signal = null } = {}) {
     const route = routeForPath(sourceName) || routeForPath(trackPath);
     if (!route) return inspectTrackVariants(trackPath, sourceName, { signal });
     if (path.extname(sourceName).toLowerCase() === ".ss2") {
@@ -138,27 +138,26 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
         const result = await handle.read(header, 0, header.length, 0);
         if (result.bytesRead < header.length || header.toString("ascii") !== "SShd") {
           const error = new Error("Headerless SS2 resource; standalone playback requires missing stream parameters.");
-          error.scanState = "unsupported";
           throw error;
         }
       } finally {
         await handle.close();
       }
     }
-    let limiter = backendScanLimiters.get(route.backendId);
+    let limiter = backendInspectionLimiters.get(route.backendId);
     if (!limiter) {
-      limiter = createAsyncLimiter(route.scanConcurrency);
-      backendScanLimiters.set(route.backendId, limiter);
+      limiter = createAsyncLimiter(route.inspectionConcurrency);
+      backendInspectionLimiters.set(route.backendId, limiter);
     }
-    return limiter(() => withScanTimeout(
+    return limiter(() => withOperationTimeout(
       (deadlineSignal) => inspectTrackVariants(trackPath, sourceName, { signal: deadlineSignal }),
-      route.scanTimeoutSeconds * 1000,
+      route.inspectionTimeoutSeconds * 1000,
       `${route.backendId} metadata inspection for ${sourceName}`,
       { signal }
     ), { signal });
   }
 
-  return { inspectTrack, inspectTrackVariants, inspectTrackVariantsForScan };
+  return { inspectTrack, inspectTrackVariants, inspectTrackVariantsForPlaylist };
 }
 
 module.exports = { DEFAULT_CACHE_MAX_ENTRIES, createTrackInspector, formatPlaybackLength, normalizePlaybackSeconds };

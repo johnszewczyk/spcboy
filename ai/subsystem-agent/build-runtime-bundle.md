@@ -20,7 +20,7 @@
 - `native/libvgm-tool` is a renderer-owned PCM helper; `native/lazyusf-tool` remains the metadata/raw-decoder utility while `native/libgme-tool` owns native libgme and lazyusf2 transport playback.
 - OpenMPT and standard audio renderer-PCM paths use the launch-environment commands `openmpt123`, `ffprobe`, and `ffmpeg`; `SPCBOY_OPENMPT123`, `SPCBOY_FFPROBE`, and `SPCBOY_FFMPEG` override their command names.
 - `./launch.sh` is the local launcher.
-- `scripts/build-media-scanner.sh` builds the sibling `MediaScanner` Swift package and stages its `media-scan` executable under `native/`. The shared package owns host-neutral metadata/results, routing, scheduling, and canonical catalog validation. Options invokes `media-scan catalog validate` before persisting a database path. SPCBoy reads that catalog in query-only mode; production catalog writes remain blocked until MediaScanner gains archive/decoder packaging and complete-record persistence.
+- `scripts/build-media-scanner.sh` builds the sibling `MediaScanner` Swift package and stages its `media-scan` executable under `native/`. The shared package owns catalog creation, scanning, resumable staging, atomic publication, archive/metadata adapters, and validation. Options invokes `media-scan catalog validate` before persisting a path; SPCBoy opens the validated catalog read-only.
 - The launch script validates `package.json`, honors `SPCBOY_LIBRARY_ROOT` when set, installs Electron dependencies if missing, incrementally builds the native helper graph, then builds `dist/SPCBoy.app` from Electron's macOS bundle.
 - The built application contains the active `electron/`, `web/`, and `native/` runtime trees beneath `Contents/Resources/app`; it is not a loose renderer staging directory.
 - Before replacing the generated app, launch stops only a runtime whose command line names the old loose bundle or the generated SPCBoy app path. It refuses to replace a runtime still in use, preventing partial asset replacement.
@@ -28,7 +28,7 @@
 - Local builds use an ad-hoc signature with a stable designated requirement for `com.john.spcboy.development`; rebuilding must not turn SPCBoy into a different Files & Folders client and re-prompt for an already approved library location. A public release should replace that development signature with a stable Developer ID signature.
 - Development launches must create a new runtime rather than hand control to a pre-existing Electron instance. LaunchPad owns process/session management for its own launches.
 - Launch staging copies the complete runtime JavaScript surface from `electron/`; adding a required Electron module must not require a second hand-maintained copy list.
-- `electron/special-audio.js` is part of that complete runtime surface and must remain staged with the main process because scanner and playback routing import it.
+- `electron/special-audio.js` is part of that complete runtime surface and must remain staged with the main process because playlist intake and playback routing import it.
 - `npm start` runs Electron directly.
 - The libgme helper is created lazily on the first metadata/native-playback request; raw folder browsing does not start it.
 - `npm run check` syntax-checks the active JS entry points.
@@ -57,8 +57,8 @@
 - [electron/main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [electron/native-audio-tools.js](/Users/john/Downloads/Code/SPCBoy/electron/native-audio-tools.js)
 - [electron/native-helper-client.js](/Users/john/Downloads/Code/SPCBoy/electron/native-helper-client.js)
-- [electron/library-database.js](/Users/john/Downloads/Code/SPCBoy/electron/library-database.js)
-- [electron/library-scan.js](/Users/john/Downloads/Code/SPCBoy/electron/library-scan.js)
+- [scripts/build-media-scanner.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-media-scanner.sh)
+- [electron/media-scanner-client.js](/Users/john/Downloads/Code/SPCBoy/electron/media-scanner-client.js)
 - [electron/archive-resolver.js](/Users/john/Downloads/Code/SPCBoy/electron/archive-resolver.js)
 - [electron/preload.js](/Users/john/Downloads/Code/SPCBoy/electron/preload.js)
 - [electron/special-audio.js](/Users/john/Downloads/Code/SPCBoy/electron/special-audio.js)

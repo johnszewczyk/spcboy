@@ -1,8 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createAsyncLimiter, withScanTimeout } = require("../electron/scanner-scheduler");
+const { createAsyncLimiter, withOperationTimeout } = require("../electron/bounded-work");
 
-test("limits concurrent scanner operations", async () => {
+test("limits concurrent inspection operations", async () => {
   const run = createAsyncLimiter(1);
   let active = 0;
   let maximum = 0;
@@ -35,10 +35,10 @@ test("cancelled limiter waiters settle immediately without consuming capacity", 
   assert.equal(await run(async () => 42), 42);
 });
 
-test("times out bounded scanner work", async () => {
+test("times out bounded inspection work", async () => {
   let aborted = false;
   await assert.rejects(
-    withScanTimeout((signal) => new Promise((_, reject) => {
+    withOperationTimeout((signal) => new Promise((_, reject) => {
       signal.addEventListener("abort", () => {
         aborted = true;
         reject(signal.reason);
@@ -49,9 +49,9 @@ test("times out bounded scanner work", async () => {
   assert.equal(aborted, true);
 });
 
-test("propagates caller cancellation into active scanner work", async () => {
+test("propagates caller cancellation into active inspection work", async () => {
   const controller = new AbortController();
-  const operation = withScanTimeout((signal) => new Promise((_, reject) => {
+  const operation = withOperationTimeout((signal) => new Promise((_, reject) => {
     signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   }), 10_000, "fixture inspection", { signal: controller.signal });
   controller.abort(new Error("Library operation cancelled"));

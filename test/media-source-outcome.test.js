@@ -1,10 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  createScanOutcome,
-  formatScanOutcome,
-  summarizeScanOutcomes
-} = require("../electron/scanner-model");
+  createMediaOutcome,
+  formatMediaOutcome,
+  summarizeMediaOutcomes
+} = require("../electron/media-source-outcome");
 const { normalizeArchiveEntry } = require("../electron/archive-path");
 
 test("normalizes harmless archive member path prefixes", () => {
@@ -12,8 +12,8 @@ test("normalizes harmless archive member path prefixes", () => {
   assert.equal(normalizeArchiveEntry("01//Track.vgz"), "01/Track.vgz");
 });
 
-test("creates structured, copyable scan outcomes", () => {
-  const outcome = createScanOutcome({
+test("creates structured, copyable media outcomes", () => {
+  const outcome = createMediaOutcome({
     identity: {
       rootPath: "/music",
       sourcePath: "/music/library.zip",
@@ -26,17 +26,17 @@ test("creates structured, copyable scan outcomes", () => {
     message: "Missing USF library"
   });
 
-  assert.equal(formatScanOutcome(outcome), "/music/library.zip#game/track.miniusf [lazyusf]: materialization: Missing USF library");
+  assert.equal(formatMediaOutcome(outcome), "/music/library.zip#game/track.miniusf [lazyusf]: materialization: Missing USF library");
   assert.equal(outcome.durationMs, 125);
 });
 
-test("summarizes scan outcomes by stage, state, and backend", () => {
+test("summarizes media outcomes by stage, state, and backend", () => {
   const outcomes = [
-    createScanOutcome({ identity: { sourcePath: "/music/a.spc" }, route: { backendId: "libgme" }, stage: "metadata", state: "successful" }),
-    createScanOutcome({ identity: { sourcePath: "/music/b.zip" }, stage: "archiveListing", state: "failed", message: "bad archive" }),
-    createScanOutcome({ identity: { sourcePath: "/music/c.vgm" }, route: { backendId: "libvgm" }, stage: "metadata", state: "successful" })
+    createMediaOutcome({ identity: { sourcePath: "/music/a.spc" }, route: { backendId: "libgme" }, stage: "metadata", state: "successful" }),
+    createMediaOutcome({ identity: { sourcePath: "/music/b.zip" }, stage: "archiveListing", state: "failed", message: "bad archive" }),
+    createMediaOutcome({ identity: { sourcePath: "/music/c.vgm" }, route: { backendId: "libvgm" }, stage: "metadata", state: "successful" })
   ];
-  assert.deepEqual(summarizeScanOutcomes(outcomes), {
+  assert.deepEqual(summarizeMediaOutcomes(outcomes), {
     total: 3,
     byStage: { metadata: 2, archiveListing: 1 },
     byState: { successful: 2, failed: 1 },

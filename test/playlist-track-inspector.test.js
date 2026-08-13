@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs").promises;
 const os = require("node:os");
 const path = require("node:path");
-const { createTrackInspector } = require("../electron/track-inspector");
+const { createTrackInspector } = require("../electron/playlist-track-inspector");
 
 test("track inspector caches lightweight metadata and expands native multi-track results", async (t) => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-track-inspector-"));
@@ -35,7 +35,7 @@ test("track inspector caches lightweight metadata and expands native multi-track
 
   const first = await inspector.inspectTrack(trackPath);
   const second = await inspector.inspectTrack(trackPath);
-  const variants = await inspector.inspectTrackVariantsForScan(trackPath);
+  const variants = await inspector.inspectTrackVariantsForPlaylist(trackPath);
 
   assert.equal(first.metadata.song, "Song");
   assert.equal(first.lengthLabel, "0:12");
@@ -60,7 +60,7 @@ test("track inspector reports required decoder failures instead of indexing gene
   });
 
   await assert.rejects(
-    inspector.inspectTrackVariantsForScan(trackPath),
+    inspector.inspectTrackVariantsForPlaylist(trackPath),
     /openmpt123 rejected the module/
   );
 });

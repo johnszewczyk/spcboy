@@ -10,8 +10,8 @@ const BACKEND_MODULES = Object.freeze([
     metadataPolicy: "direct-or-decoder",
     playbackSpeedMode: "native-tempo",
     playbackSpeedExtensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap", ".spc"]),
-    scanConcurrency: 1,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 1,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "libvgm",
@@ -23,8 +23,8 @@ const BACKEND_MODULES = Object.freeze([
     metadataPolicy: "direct",
     playbackSpeedMode: "native-tempo",
     playbackSpeedExtensions: Object.freeze([".gym", ".s98", ".vgm", ".vgz"]),
-    scanConcurrency: 1,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 1,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "lazyusf",
@@ -35,8 +35,8 @@ const BACKEND_MODULES = Object.freeze([
     structurePolicy: "known-single",
     metadataPolicy: "direct",
     archivePolicy: "dependency-set",
-    scanConcurrency: 1,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 1,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "highlycomplete",
@@ -47,8 +47,8 @@ const BACKEND_MODULES = Object.freeze([
     structurePolicy: "known-single",
     metadataPolicy: "decoder",
     archivePolicy: "dependency-set",
-    scanConcurrency: 1,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 1,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "openmpt",
@@ -58,8 +58,8 @@ const BACKEND_MODULES = Object.freeze([
     extensions: Object.freeze([".xm"]),
     structurePolicy: "known-single",
     metadataPolicy: "optional-deferred",
-    scanConcurrency: 2,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 2,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "standard-audio",
@@ -69,8 +69,8 @@ const BACKEND_MODULES = Object.freeze([
     extensions: Object.freeze([".aac", ".aif", ".aiff", ".flac", ".m4a", ".mp2", ".mp3", ".tak", ".wav"]),
     structurePolicy: "known-single",
     metadataPolicy: "optional-deferred",
-    scanConcurrency: 2,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 2,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "twosf",
@@ -81,8 +81,8 @@ const BACKEND_MODULES = Object.freeze([
     structurePolicy: "known-single",
     metadataPolicy: "direct",
     archivePolicy: "dependency-set",
-    scanConcurrency: 1,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 1,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "vgmstream",
@@ -93,8 +93,8 @@ const BACKEND_MODULES = Object.freeze([
     structurePolicy: "dependency-enumerate",
     metadataPolicy: "decoder",
     archivePolicy: "dependency-set-when-required",
-    scanConcurrency: 2,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 2,
+    inspectionTimeoutSeconds: 60
   }),
   Object.freeze({
     id: "playpsf",
@@ -105,8 +105,8 @@ const BACKEND_MODULES = Object.freeze([
     structurePolicy: "known-single",
     metadataPolicy: "direct",
     archivePolicy: "dependency-set",
-    scanConcurrency: 1,
-    scanTimeoutSeconds: 60
+    inspectionConcurrency: 1,
+    inspectionTimeoutSeconds: 60
   })
 ]);
 
@@ -182,8 +182,8 @@ function routeForPath(filePath, { archiveMember = false, preferredBackendId = nu
     archiveMember: Boolean(archiveMember),
     archivePolicy: backend.archivePolicy || "selected-entry",
     playbackMode: backend.playbackMode,
-    scanConcurrency: backend.scanConcurrency || 1,
-    scanTimeoutSeconds: backend.scanTimeoutSeconds || 60,
+    inspectionConcurrency: backend.inspectionConcurrency || 1,
+    inspectionTimeoutSeconds: backend.inspectionTimeoutSeconds || 60,
     playbackSpeedMode: backend.playbackSpeedExtensions?.includes(extension) ? backend.playbackSpeedMode || null : null,
     supportsMultiTrack,
     structurePolicy,

@@ -1040,9 +1040,7 @@ body.is-file-drag-over::after {
   overflow-wrap: anywhere;
 }
 
-.library-root-main { min-width: 0; }
-.library-root-main label { display: flex; align-items: center; gap: 0.5rem; }
-.library-root-enabled { width: 1rem; margin: 0; }
+.library-root-main { min-width: 0; display: flex; align-items: center; gap: 0.5rem; }
 .library-root-main span { overflow-wrap: anywhere; }
 .library-root-name { min-width: 0; }
 .library-root-success { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1055,52 +1053,8 @@ body.options-window .app-shell { display: none; }
 body.options-window .options-overlay { position: static; display: block; width: 100vw; height: 100vh; padding: 0; background: none; }
 body.options-window .options-panel { width: 100vw; height: 100vh; grid-template-rows: minmax(0, 1fr); border-radius: 0; box-shadow: none; }
 body.options-window .options-header { display: none; }
-.library-root-progress { width: 100px; height: 0.5rem; overflow: hidden; border-radius: 999px; background: rgb(20 20 20); }
-.library-root-progress > span { display: block; height: 100%; background: var(--accent); }
 .library-root-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
 .library-root-actions .tool-button { height: 22px; padding: 0 0.45rem; font-size: 0.9em; }
-
-.library-scan-progress-bar {
-  width: 100%;
-  height: 4px;
-  max-height: 4px;
-  overflow: hidden;
-  background: var(--bg-sidebar);
-  opacity: 1;
-  transform: translateY(0);
-  transition: max-height 100ms cubic-bezier(0.2, 0, 0, 1), opacity 100ms ease, transform 100ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.library-scan-progress-bar > span { display: block; height: 100%; background: var(--accent); }
-.library-scan-progress-bar.is-collapsed { max-height: 0; opacity: 0; transform: translateY(-0.25rem); }
-.library-scan-progress-bar.is-preparing > span { width: 35%; animation: scan-preparing 1s ease-in-out infinite alternate; }
-@keyframes scan-preparing { from { transform: translateX(-100%); } to { transform: translateX(285%); } }
-
-.library-scan-status-panel {
-  display: grid;
-  gap: 1rem;
-}
-
-.library-scan-status-panel .library-scan-status {
-  position: static;
-  min-height: 0;
-  padding: 0;
-  background: transparent;
-}
-
-.library-scan-current-file {
-  min-height: 1.25em;
-  overflow: hidden;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.library-scan-cancel-button {
-  width: 100%;
-  background: rgb(40 40 40);
-}
 
 .database-stats-panel {
   display: grid;
@@ -1132,22 +1086,6 @@ body.options-window .options-header { display: none; }
 }
 
 .database-stat strong { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
-
-.library-scan-status {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  display: block;
-  padding: 0.5rem 0;
-  background: var(--bg-subpanel);
-  min-height: 1.25em;
-  overflow: hidden;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .options-field {
   padding: 0;

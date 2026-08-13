@@ -1,8 +1,8 @@
 const { archivePlayableEntriesWithSignature } = require("./archive-resolver");
 const { routeForArchiveEntry } = require("./playback-core");
-const { createScanOutcome } = require("./scanner-model");
+const { createMediaOutcome } = require("./media-source-outcome");
 const { normalizeArchiveEntry } = require("./archive-path");
-const { withScanTimeout } = require("./scanner-scheduler");
+const { withOperationTimeout } = require("./bounded-work");
 
 const ARCHIVE_LIST_TIMEOUT_MS = 30_000;
 const ARCHIVE_LIST_CONCURRENCY = 2;
@@ -11,7 +11,6 @@ async function expandArchiveSources(sources, {
   rootPath = "",
   job = null,
   concurrency = ARCHIVE_LIST_CONCURRENCY,
-  deepScan = false,
   onOutcome = () => {},
   onEntries = async () => {},
   archiveOptions = {}
@@ -31,7 +30,7 @@ async function expandArchiveSources(sources, {
       }
       const startedAt = Date.now();
       try {
-        const listing = await withScanTimeout(
+        const listing = await withOperationTimeout(
           (signal) => archivePlayableEntriesWithSignature(
             source.archivePath,
             (extension) => Boolean(routeForArchiveEntry(`member${extension}`)),
@@ -42,7 +41,7 @@ async function expandArchiveSources(sources, {
           { signal: job?.signal || null }
         );
         if (!listing.entries.length) {
-          onOutcome(createScanOutcome({
+          onOutcome(createMediaOutcome({
             identity: { rootPath, sourcePath: source.archivePath },
             stage: "archiveListing",
             state: "archiveCompleted",
@@ -53,8 +52,7 @@ async function expandArchiveSources(sources, {
         await onEntries({
           source,
           entries: listing.entries.map((entry) => normalizeArchiveEntry(entry)),
-          signature: listing.signature,
-          deepScan
+          signature: listing.signature
         });
         for (const archiveEntry of listing.entries) {
           expanded.push({
@@ -66,7 +64,7 @@ async function expandArchiveSources(sources, {
           });
         }
       } catch (error) {
-        const outcome = createScanOutcome({
+        const outcome = createMediaOutcome({
           identity: { rootPath, sourcePath: source.archivePath },
           stage: "archiveListing",
           state: error.message === "Library operation cancelled" ? "cancelled" : "failed",

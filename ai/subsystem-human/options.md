@@ -4,13 +4,13 @@
 
 - Library: opens as the default Options section and lists roots supplied by the shared canonical database.
 - Roots and scanner controls are read-only in SPCBoy. Add, enable, delete, Scan Selected, Deep Scan, Test Files, Clear Unlinked, and Clear Database are disabled; MediaScanner is the catalog writer.
-- Scan Log remains available for retained legacy diagnostics, but SPCBoy does not start the dormant JavaScript catalog scanner.
-- Archive Cache: Options / Database shows its size and file count, offers a 512 MB–4 GB automatic LRU limit (2 GB by default), and can disable durable playback caching entirely. Cache-off playback materializations are deleted on Stop and abandoned playback scratch roots are recovered at launch; neither mode turns scanner scratch space into a cache.
+- Scan Log displays diagnostics already stored with a catalog root. SPCBoy does not start or contain a JavaScript catalog scanner.
+- Archive Cache: Options / Database shows its size and file count, offers a 512 MB–4 GB automatic LRU limit (2 GB by default), and can disable durable playback caching entirely. Cache-off playback materializations are deleted on Stop and abandoned playback scratch roots are recovered at launch; MediaScanner scratch is separate.
 
 ## Database
 
 - Library Database displays the configured canonical `Library.sqlite` path. Browse uses the native file picker and MediaScanner schema validation; Use Default selects CocoaSpice's Application Support catalog. A changed location applies after restart.
-- The active catalog is opened in SQLite query-only mode. Indexed/unlinked statistics remain readable, while destructive maintenance is unavailable in SPCBoy.
+- The active catalog is opened through an OS-level read-only SQLite handle with query-only mode. Indexed/unlinked statistics remain readable, while destructive maintenance is unavailable in SPCBoy.
 
 ## Playback
 
@@ -29,7 +29,7 @@
 ## Routing
 
 - Routing: lists decoder/plugin extension conflicts from the shared playback registry. The current registry has no overlapping extensions.
-- Routing policy: for a real overlap, choose the decoder per extension. Selecting the first declared candidate means “use the registry default.” The scanner and playback deliberately share that selected route.
+- Routing policy: for a real overlap, choose the SPCBoy playback decoder per extension. Selecting the first declared candidate means “use the registry default.” MediaScanner owns catalog routing independently.
 
 ## Theme
 
@@ -43,7 +43,7 @@
 
 - Options: opens in a native child 800 by 600 pixel window with alphabetized Database, Library, Playback, Routing, and Theme sections; focusing it raises only that requested window, avoiding focus churn among auxiliary windows.
 - Options: shows its dark native shell immediately and loads settings/library controls without enumerating the persisted raw folder tree.
-- Library paths: each row shows its enable state, scan-health color dot, existing folder name, successful-file total, and retained actions; mutation and scan actions are disabled in read-only catalog mode.
+- Library paths: each row shows its stored scan-health color dot, folder name, successful-file total, and Scan Log action. No root mutation or scan action is exposed.
 - Scan Log: the header contains the pathname and all scan totals/status data; the body contains the selectable error-only log.
 
 ## Files

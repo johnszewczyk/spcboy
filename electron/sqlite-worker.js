@@ -3,8 +3,8 @@ const path = require("path");
 const { parentPort, workerData } = require("worker_threads");
 const { DatabaseSync } = require("node:sqlite");
 
-fs.mkdirSync(path.dirname(workerData.databasePath), { recursive: true });
-const database = new DatabaseSync(workerData.databasePath);
+if (!workerData.queryOnly) fs.mkdirSync(path.dirname(workerData.databasePath), { recursive: true });
+const database = new DatabaseSync(workerData.databasePath, { readOnly: Boolean(workerData.queryOnly) });
 database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
 if (workerData.queryOnly) database.exec("PRAGMA query_only = ON;");
 

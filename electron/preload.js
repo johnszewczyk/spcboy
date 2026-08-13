@@ -30,7 +30,6 @@ contextBridge.exposeInMainWorld("spcBoy", {
   bootstrap: () => ipcRenderer.invoke("app:bootstrap"),
   chooseRootFolder: () => ipcRenderer.invoke("library:choose-root"),
   openPath: (inputPath) => ipcRenderer.invoke("library:open-path", inputPath),
-  chooseLibraryPath: () => ipcRenderer.invoke("library:choose-path"),
   selectFolder: (folderPath) => ipcRenderer.invoke("library:select-folder", folderPath),
   listFolder: (folderPath) => ipcRenderer.invoke("library:list-folder", folderPath),
   selectFile: (filePath) => ipcRenderer.invoke("library:select-file", filePath),
@@ -41,26 +40,14 @@ contextBridge.exposeInMainWorld("spcBoy", {
   databaseLocation: () => ipcRenderer.invoke("library:database-location"),
   chooseDatabaseLocation: () => ipcRenderer.invoke("library:database-location-choose"),
   useDefaultDatabaseLocation: () => ipcRenderer.invoke("library:database-location-default"),
-  libraryOperationState: () => ipcRenderer.invoke("library:operation-state"),
-  databaseRemoveRoot: (rootId) => ipcRenderer.invoke("library:database-remove-root", rootId),
-  databaseSetRootEnabled: (rootId, enabled) => ipcRenderer.invoke("library:database-set-root-enabled", rootId, enabled),
-  databaseSetRootsEnabled: (rootIds, enabled) => ipcRenderer.invoke("library:database-set-roots-enabled", rootIds, enabled),
-  databaseMoveRoot: (rootId, direction) => ipcRenderer.invoke("library:database-move-root", rootId, direction),
   databaseGames: () => ipcRenderer.invoke("library:database-games"),
-  configureConsoleTagPreference: (enabled) => ipcRenderer.invoke("library:console-tag-preference", Boolean(enabled)),
   databaseSearchGames: (query) => ipcRenderer.invoke("library:database-search-games", query),
   databaseSearchBrowser: (rootPath, query) => ipcRenderer.invoke("library:database-search-browser", rootPath, query),
   databaseGameTracks: (games) => ipcRenderer.invoke("library:database-game-tracks", games),
-  scanDatabaseRoot: (rootId, deepScan = false) => ipcRenderer.invoke("library:database-scan", Number(rootId), Boolean(deepScan)),
-  scanAllDatabaseRoots: (deepScan = false) => ipcRenderer.invoke("library:database-scan-all", Boolean(deepScan)),
-  trimMissingDatabaseSources: () => ipcRenderer.invoke("library:database-trim-missing"),
-  purgeUnlinkedDatabaseSources: () => ipcRenderer.invoke("library:database-purge-unlinked"),
-  clearLibraryDatabase: () => ipcRenderer.invoke("library:database-clear"),
   databaseMaintenanceSummary: () => ipcRenderer.invoke("library:database-maintenance-summary"),
   archiveCacheSummary: () => ipcRenderer.invoke("library:archive-cache-summary"),
   clearArchiveCache: () => ipcRenderer.invoke("library:archive-cache-clear"),
   configureArchiveCache: (settings) => ipcRenderer.invoke("library:archive-cache-configure", settings || {}),
-  cancelLibraryOperation: () => ipcRenderer.invoke("library:database-cancel-operation"),
   inspectTrack: (trackPath, sourceName) => ipcRenderer.invoke("playlist:inspect-track", trackPath, sourceName),
   hydrateLooseMetadata: (track) => ipcRenderer.invoke("playlist:hydrate-loose-metadata", track || {}),
   hydrateArchiveMetadata: (tracks) => ipcRenderer.invoke("playlist:hydrate-archive-metadata", tracks),
@@ -113,22 +100,6 @@ contextBridge.exposeInMainWorld("spcBoy", {
   onAppearanceSettingsChanged: (handler) => {
     ipcRenderer.removeAllListeners("app:appearance-settings-changed");
     ipcRenderer.on("app:appearance-settings-changed", (_event, settings) => handler(settings || {}));
-  },
-  onLibraryScanProgress: (handler) => {
-    ipcRenderer.removeAllListeners("library:scan-progress");
-    ipcRenderer.on("library:scan-progress", (_event, progress) => handler(progress));
-  },
-  onLibraryOperationState: (handler) => {
-    ipcRenderer.removeAllListeners("library:operation-state-changed");
-    ipcRenderer.on("library:operation-state-changed", (_event, state) => handler(state || {}));
-  },
-  onLibraryRootsChanged: (handler) => {
-    ipcRenderer.removeAllListeners("library:roots-changed");
-    ipcRenderer.on("library:roots-changed", (_event, roots) => handler(Array.isArray(roots) ? roots : []));
-  },
-  onLibraryDatabaseChanged: (handler) => {
-    ipcRenderer.removeAllListeners("library:database-changed");
-    ipcRenderer.on("library:database-changed", (_event, change) => handler(change || {}));
   },
   onTransportShortcut: (handler) => {
     ipcRenderer.removeAllListeners("transport:shortcut");
