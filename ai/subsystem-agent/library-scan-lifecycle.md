@@ -5,6 +5,11 @@
 - Scanner discovery, inspection, reuse, cancellation, diagnostics, and archive materialization.
 - Durable archive playback cache and disposable scan/playback scratch roots.
 
+## Current Production Status
+
+- SPCBoy does not run this JavaScript catalog scanner while the canonical MediaScanner catalog reader is active. Scan and database-mutation IPC reject the operation and the renderer disables those controls.
+- The implementation below remains as migration reference and regression coverage until MediaScanner owns archive/decoder packaging, resumable writes, and all required scan commands. It must not be described as SPCBoy's active writer.
+
 ## Ownership
 
 - `library-scan-service.js` owns one cancellable library job, progress, generation publication, and scratch-budget enforcement. The main process gives each job an `AbortSignal` so cancellation reaches active archive and decoder subprocesses.

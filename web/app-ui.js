@@ -1683,15 +1683,19 @@ function renderAll() {
   refs.repeatButton.title = repeatTitles[state.repeatMode];
   refs.repeatButton.setAttribute("aria-label", repeatTitles[state.repeatMode]);
   refs.libraryScanStatus.textContent = state.libraryScanStatus;
+  refs.libraryDatabasePath.value = state.databaseLocation?.configuredPath || "";
+  refs.libraryDatabaseLocationStatus.textContent = state.databaseLocationStatus || "The shared MediaScanner catalog is opened read-only. A changed location is applied after restarting SPCBoy.";
+  const databaseReadOnly = Boolean(state.databaseLocation?.readOnly);
   refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
   refs.libraryScanStatusPanel.classList.toggle("is-hidden", !state.libraryOperationActive && state.libraryScanStatus === "No scan started.");
   refs.libraryCancelButton.disabled = !state.libraryOperationActive || state.libraryOperationCancelling;
-  refs.libraryAddRootButton.disabled = state.libraryOperationActive;
-  refs.libraryToggleRootsButton.disabled = state.libraryOperationActive;
-  refs.libraryScanAllButton.disabled = state.libraryOperationActive;
-  refs.libraryTrimMissingButton.disabled = state.libraryOperationActive;
-  refs.libraryPurgeUnlinkedButton.disabled = state.libraryOperationActive;
-  refs.libraryClearDatabaseButton.disabled = state.libraryOperationActive;
+  refs.libraryAddRootButton.disabled = state.libraryOperationActive || databaseReadOnly;
+  refs.libraryToggleRootsButton.disabled = state.libraryOperationActive || databaseReadOnly;
+  refs.libraryScanAllButton.disabled = state.libraryOperationActive || databaseReadOnly;
+  refs.libraryDeepScanCheckbox.disabled = state.libraryOperationActive || databaseReadOnly;
+  refs.libraryTrimMissingButton.disabled = state.libraryOperationActive || databaseReadOnly;
+  refs.libraryPurgeUnlinkedButton.disabled = state.libraryOperationActive || databaseReadOnly;
+  refs.libraryClearDatabaseButton.disabled = state.libraryOperationActive || databaseReadOnly;
   refs.libraryClearCacheButton.disabled = state.libraryOperationActive;
   const progress = state.libraryScanProgress;
   const progressTotal = Number(progress?.total || 0);
@@ -1714,6 +1718,7 @@ function renderAll() {
   refs.databaseCacheSummary.textContent = maintenance?.archiveCache ? formatArchiveCacheSummary(maintenance.archiveCache) : "—";
   refs.consoleViewCheckbox.checked = state.consoleViewEnabled;
   refs.preferEmbeddedConsoleTagsCheckbox.checked = state.preferEmbeddedConsoleTags;
+  refs.preferEmbeddedConsoleTagsCheckbox.disabled = databaseReadOnly;
   refs.equalizerEnabledCheckbox.checked = state.equalizerEnabled;
   refs.equalizerToolbarButton.classList.toggle("is-selected", state.equalizerEnabled);
   refs.equalizerToolbarButton.setAttribute("aria-pressed", state.equalizerEnabled ? "true" : "false");
@@ -1738,11 +1743,11 @@ function renderAll() {
       const displayName = root.path.split(/[\\/]/).filter(Boolean).pop() || root.path;
       return `
       <div class="library-root-row" data-root-id="${root.id}">
-        <div class="library-root-main"><label title="${escapeHtml(root.path)}"><input class="library-root-enabled" type="checkbox" ${root.is_enabled ? "checked" : ""}> ${health}<span class="library-root-name">${escapeHtml(displayName)}</span></label></div>
+        <div class="library-root-main"><label title="${escapeHtml(root.path)}"><input class="library-root-enabled" type="checkbox" ${root.is_enabled ? "checked" : ""} ${databaseReadOnly ? "disabled" : ""}> ${health}<span class="library-root-name">${escapeHtml(displayName)}</span></label></div>
         <div class="library-root-actions">
-          <button class="tool-button glyph-button library-root-scan" type="button" title="Scan folder" aria-label="Scan folder"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scan-search"></use></svg></button>
+          <button class="tool-button glyph-button library-root-scan" type="button" title="Scan folder" aria-label="Scan folder" ${databaseReadOnly ? "disabled" : ""}><svg class="ui-icon" aria-hidden="true"><use href="#icon-scan-search"></use></svg></button>
           <button class="tool-button glyph-button library-root-log" type="button" title="Open scan log" aria-label="Open scan log"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scroll-text"></use></svg></button>
-          <button class="tool-button glyph-button library-root-remove" type="button" title="Delete folder" aria-label="Delete folder"><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash-2"></use></svg></button>
+          <button class="tool-button glyph-button library-root-remove" type="button" title="Delete folder" aria-label="Delete folder" ${databaseReadOnly ? "disabled" : ""}><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash-2"></use></svg></button>
         </div>
       </div>`;
     }).join("")
@@ -2247,8 +2252,14 @@ async function bootstrap() {
   }
 
   loadSettings();
+  state.databaseLocation = await window.spcBoy?.databaseLocation?.() || null;
+  state.databaseLocationStatus = state.databaseLocation?.requiresRestart
+    ? "Restart SPCBoy to use the selected database."
+    : "The shared MediaScanner catalog is active and opened read-only.";
   if (window.spcBoy?.isOptionsWindow) renderAll();
-  else await window.spcBoy?.configureConsoleTagPreference?.(state.preferEmbeddedConsoleTags);
+  else if (!state.databaseLocation?.readOnly) {
+    await window.spcBoy?.configureConsoleTagPreference?.(state.preferEmbeddedConsoleTags);
+  }
   await window.spcBoy?.configureArchiveCache?.({
     enabled: state.archiveCacheEnabled,
     limitBytes: state.archiveCacheLimitBytes

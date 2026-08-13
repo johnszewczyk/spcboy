@@ -170,6 +170,12 @@
             <div id="options-database-section" class="options-page options-database-page is-hidden">
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Database</div>
+                <label class="options-field"><span>Library Database</span><input id="library-database-path" class="options-input" type="text" readonly aria-label="Library database path" /></label>
+                <div class="options-library-toolbar">
+                  <button id="library-database-default-button" class="tool-button" type="button">Use Default</button>
+                  <button id="library-database-browse-button" class="tool-button" type="button">Browse…</button>
+                </div>
+                <p id="library-database-location-status">The shared MediaScanner catalog is opened read-only. A changed location is applied after restarting SPCBoy.</p>
                 <div class="database-stats-panel">
                   <div class="database-stat"><span>Indexed Tracks</span><strong id="database-indexed-track-count">—</strong></div>
                   <div class="database-stat"><span>Unlinked Sources</span><strong id="database-unlinked-source-count">—</strong></div>

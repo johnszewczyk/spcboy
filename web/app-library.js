@@ -229,6 +229,31 @@ async function refreshDatabaseMaintenanceSummary() {
   renderAll();
 }
 
+async function refreshDatabaseLocation() {
+  if (!window.spcBoy?.databaseLocation) return;
+  state.databaseLocation = await window.spcBoy.databaseLocation();
+  state.databaseLocationStatus = state.databaseLocation.requiresRestart
+    ? "Restart SPCBoy to use the selected database."
+    : "The shared MediaScanner catalog is active and opened read-only.";
+  renderAll();
+}
+
+async function chooseDatabaseLocation() {
+  const result = await window.spcBoy?.chooseDatabaseLocation?.();
+  if (!result) return;
+  state.databaseLocation = result;
+  state.databaseLocationStatus = `Validated ${Number(result.catalog?.trackCount || 0).toLocaleString()} tracks. Restart SPCBoy to use this database.`;
+  renderAll();
+}
+
+async function useDefaultDatabaseLocation() {
+  state.databaseLocation = await window.spcBoy?.useDefaultDatabaseLocation?.();
+  state.databaseLocationStatus = state.databaseLocation?.requiresRestart
+    ? "Restart SPCBoy to use the default CocoaSpice database."
+    : "The default CocoaSpice database is already active.";
+  renderAll();
+}
+
 async function clearLibraryArchiveCache() {
   if (!window.spcBoy?.clearArchiveCache || state.libraryOperationActive) return;
   state.libraryOperationActive = true;
@@ -268,6 +293,9 @@ Object.assign(app.ui, {
   purgeUnlinkedLibrary,
   clearLibraryDatabase,
   refreshDatabaseMaintenanceSummary,
+  refreshDatabaseLocation,
+  chooseDatabaseLocation,
+  useDefaultDatabaseLocation,
   clearLibraryArchiveCache,
   cancelLibraryOperation
 });

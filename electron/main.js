@@ -2,7 +2,8 @@ const fsSync = require("fs");
 const fs = fsSync.promises;
 const path = require("path");
 const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, powerSaveBlocker, shell } = require("electron");
-const { LibraryDatabase } = require("./library-database");
+const { CanonicalLibraryReader } = require("./canonical-library-reader");
+const { runMediaScanner } = require("./media-scanner-client");
 const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
 const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, isSupportedArchivePath, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
 const { DEFAULT_SCAN_VERSION, scanLibraryRoot: scanLibraryRootService } = require("./library-scan-service");
@@ -31,6 +32,7 @@ const RAW_TREE_CONCURRENCY = 8;
 const LIBRARY_SCAN_CONCURRENCY = 8;
 const METADATA_CACHE_MAX_ENTRIES = 2048;
 const WINDOW_STATE_FILE_NAME = "window-state.json";
+const LIBRARY_DATABASE_LOCATION_FILE_NAME = "library-database-location.json";
 const APP_ICON_FILE_NAME = "app-icon.png";
 const NATIVE_PLAYBACK_BROADCAST_MS = 100;
 
@@ -48,6 +50,50 @@ let nativePlaybackBroadcastInFlight = false;
 let libraryDatabase = null;
 let activeLibraryJob = null;
 let scanScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
+
+function defaultLibraryDatabasePath() {
+  return path.join(app.getPath("appData"), "CocoaSpice", "Library.sqlite");
+}
+
+function libraryDatabaseLocationFilePath() {
+  return path.join(app.getPath("userData"), LIBRARY_DATABASE_LOCATION_FILE_NAME);
+}
+
+function configuredLibraryDatabasePath() {
+  try {
+    const value = JSON.parse(fsSync.readFileSync(libraryDatabaseLocationFilePath(), "utf8"));
+    if (typeof value?.path === "string" && path.isAbsolute(value.path)) return path.resolve(value.path);
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.warn(`[SPCBoy] ignored invalid database location: ${error.message}`);
+  }
+  return defaultLibraryDatabasePath();
+}
+
+async function saveLibraryDatabasePath(databasePath) {
+  const locationPath = libraryDatabaseLocationFilePath();
+  const temporaryPath = `${locationPath}.tmp`;
+  await fs.mkdir(path.dirname(locationPath), { recursive: true });
+  await fs.writeFile(temporaryPath, `${JSON.stringify({ path: path.resolve(databasePath) }, null, 2)}\n`, "utf8");
+  await fs.rename(temporaryPath, locationPath);
+}
+
+function libraryDatabaseLocation() {
+  const configuredPath = configuredLibraryDatabasePath();
+  return {
+    activePath: libraryDatabase?.databasePath || configuredPath,
+    configuredPath,
+    defaultPath: defaultLibraryDatabasePath(),
+    readOnly: Boolean(libraryDatabase?.isReadOnly),
+    requiresRestart: Boolean(libraryDatabase && path.resolve(libraryDatabase.databasePath) !== configuredPath),
+    mode: libraryDatabase?.catalogKind || "legacy"
+  };
+}
+
+function assertLibraryDatabaseWritable() {
+  if (libraryDatabase?.isReadOnly) {
+    throw new Error("The shared library database is read-only in SPCBoy. Use MediaScanner to modify it.");
+  }
+}
 let playbackScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
 let archiveCacheRecovery = { recoveredPartialCount: 0, recoveredBytes: 0 };
 let quitAfterLibraryCleanup = false;
@@ -1114,6 +1160,7 @@ ipcMain.handle("app:bootstrap", async () => {
 
 ipcMain.handle("library:choose-root", async () => chooseLibrarySnapshot());
 ipcMain.handle("library:choose-path", async () => {
+  assertLibraryDatabaseWritable();
   const rootPaths = await chooseLibraryPath();
   if (!rootPaths) return null;
   const existingIds = new Set((await libraryDatabase.loadRoots()).map((root) => Number(root.id)));
@@ -1125,6 +1172,26 @@ ipcMain.handle("library:choose-path", async () => {
     selectedCount: rootPaths.length,
     addedCount: roots.filter((root) => !existingIds.has(Number(root.id))).length
   };
+});
+ipcMain.handle("library:database-location", async () => libraryDatabaseLocation());
+ipcMain.handle("library:database-location-choose", async () => {
+  const result = await dialog.showOpenDialog(optionsWindow || mainWindow, {
+    title: "Choose Library Database",
+    buttonLabel: "Choose Database",
+    properties: ["openFile"],
+    filters: [{ name: "SQLite Database", extensions: ["sqlite", "sqlite3", "db"] }]
+  });
+  const selectedPath = result.canceled ? null : result.filePaths[0];
+  if (!selectedPath) return null;
+  const events = await runMediaScanner({ command: "catalog", args: ["validate", selectedPath] });
+  const validated = events.find((event) => event.kind === "catalogValidated")?.catalog;
+  if (!validated) throw new Error("MediaScanner did not validate the selected database.");
+  await saveLibraryDatabasePath(validated.path);
+  return { ...libraryDatabaseLocation(), configuredPath: validated.path, requiresRestart: path.resolve(validated.path) !== path.resolve(libraryDatabase.databasePath), catalog: validated };
+});
+ipcMain.handle("library:database-location-default", async () => {
+  await saveLibraryDatabasePath(defaultLibraryDatabasePath());
+  return libraryDatabaseLocation();
 });
 ipcMain.handle("library:open-path", async (_event, inputPath) => {
   const droppedPath = normalizeFolderPath(inputPath);
@@ -1189,27 +1256,32 @@ function broadcastLibraryDatabaseChanged(change, excludedWebContents = null) {
 }
 
 ipcMain.handle("library:database-remove-root", async (_event, rootId) => {
+  assertLibraryDatabaseWritable();
   const roots = await libraryDatabase.removeRoot(rootId);
   broadcastLibraryRoots(roots);
   return roots;
 });
 ipcMain.handle("library:database-set-root-enabled", async (_event, rootId, enabled) => {
+  assertLibraryDatabaseWritable();
   const roots = await libraryDatabase.setRootEnabled(rootId, enabled);
   broadcastLibraryRoots(roots);
   return roots;
 });
 ipcMain.handle("library:database-set-roots-enabled", async (_event, rootIds, enabled) => {
+  assertLibraryDatabaseWritable();
   const roots = await libraryDatabase.setRootsEnabled(rootIds, enabled);
   broadcastLibraryRoots(roots);
   return roots;
 });
 ipcMain.handle("library:database-move-root", async (_event, rootId, direction) => {
+  assertLibraryDatabaseWritable();
   const roots = await libraryDatabase.moveRoot(rootId, direction);
   broadcastLibraryRoots(roots);
   return roots;
 });
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
 ipcMain.handle("library:console-tag-preference", async (event, enabled) => {
+  assertLibraryDatabaseWritable();
   if (activeLibraryJob) throw new Error("Finish the active library operation before changing console-tag source.");
   const value = await libraryDatabase.setPreferEmbeddedConsoleTags(enabled);
   broadcastLibraryDatabaseChanged({
@@ -1229,11 +1301,13 @@ ipcMain.handle("library:database-game-tracks", async (_event, games) => {
   }));
 });
 ipcMain.handle("library:database-scan", async (_event, rootId, deepScan = false) => {
+  assertLibraryDatabaseWritable();
   const root = await libraryDatabase.loadRoot(rootId);
   if (!root) throw new Error("The requested library root is not configured.");
   return scanLibraryRoot(root.path, null, { deepScan });
 });
 ipcMain.handle("library:database-scan-all", async (_event, deepScan = false) => {
+  assertLibraryDatabaseWritable();
   return withLibraryJob("Library scan", async (job) => {
     const roots = (await libraryDatabase.loadRoots()).filter((root) => root.is_enabled);
     const results = [];
@@ -1245,6 +1319,7 @@ ipcMain.handle("library:database-scan-all", async (_event, deepScan = false) => 
   });
 });
 ipcMain.handle("library:database-trim-missing", async (event) => {
+  assertLibraryDatabaseWritable();
   const result = await trimMissingLibrary();
   for (const window of [mainWindow, optionsWindow]) {
     if (window && !window.isDestroyed() && window.webContents !== event.sender) {
@@ -1254,10 +1329,12 @@ ipcMain.handle("library:database-trim-missing", async (event) => {
   return result;
 });
 ipcMain.handle("library:database-purge-unlinked", async () => {
+  assertLibraryDatabaseWritable();
   if (!libraryDatabase) throw new Error("Library database is not initialized");
   return libraryDatabase.deleteDeadSources();
 });
 ipcMain.handle("library:database-clear", async () => {
+  assertLibraryDatabaseWritable();
   if (!libraryDatabase) throw new Error("Library database is not initialized");
   return libraryDatabase.clearDatabase();
 });
@@ -1342,7 +1419,7 @@ ipcMain.handle("playlist:hydrate-loose-metadata", async (_event, track) => {
     track.inspectionPath || track.path,
     track.sourceFilename || track.path
   );
-  await libraryDatabase?.updatePlaylistMetadata([{
+  if (!libraryDatabase?.isReadOnly) await libraryDatabase?.updatePlaylistMetadata([{
     path: track.path,
     trackIndex: track.trackIndex,
     fileSize: track.fileSize,
@@ -1361,7 +1438,7 @@ ipcMain.handle("playlist:hydrate-loose-metadata", async (_event, track) => {
 });
 ipcMain.handle("playlist:hydrate-archive-metadata", async (_event, tracks) => {
   const updates = await playlistArchiveMetadata.hydrate(tracks);
-  await libraryDatabase?.updatePlaylistMetadata(updates.map((update) => ({
+  if (!libraryDatabase?.isReadOnly) await libraryDatabase?.updatePlaylistMetadata(updates.map((update) => ({
     path: update.path,
     archivePath: update.archivePath,
     archiveEntry: update.archiveEntry,
@@ -1510,7 +1587,7 @@ app.whenReady().then(async () => {
   archiveCacheRecovery = await recoverArchiveCachePartials();
   scanScratchRecovery = await recoverAbandonedScanScratchRoots();
   playbackScratchRecovery = await recoverAbandonedPlaybackScratchRoots();
-  libraryDatabase = new LibraryDatabase(path.join(app.getPath("userData"), "Library.sqlite"));
+  libraryDatabase = new CanonicalLibraryReader(configuredLibraryDatabasePath());
   await libraryDatabase.initialize();
   appIconPath = resolveRootPngIconPath();
   if (process.platform === "darwin" && app.dock && appIconPath) {

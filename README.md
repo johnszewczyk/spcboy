@@ -28,8 +28,8 @@ See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for licenses and attribut
 ## Get started
 
 1. Run `./launch.sh`.
-2. Add library folders in **Options → Library Paths**.
-3. Scan selected folders. Stopping preserves completed source checkpoints for the next matching scan. Use **Test Files** later if files move or disappear; it hides confirmed-missing sources without deleting their retained scan data.
+2. SPCBoy opens the CocoaSpice catalog at `~/Library/Application Support/CocoaSpice/Library.sqlite` in SQLite query-only mode. To use another canonical catalog, choose it in **Options → Database → Library Database** and restart SPCBoy.
+3. Library roots and scan/database mutation controls are read-only in SPCBoy. Use MediaScanner for future catalog changes; the legacy JavaScript scanner is retained only as dormant migration reference while the shared scanner gains production write commands.
 4. Select a final sidebar item to preview it; double-click it or press Return to play.
 
 For local development: `npm test` and `npm run check`.

@@ -342,7 +342,22 @@ refs.optionsLibraryTab.addEventListener("click", () => {
 refs.optionsDatabaseTab.addEventListener("click", () => {
   state.optionsSection = "database";
   app.ui.refreshDatabaseMaintenanceSummary().catch((error) => console.error(error));
+  app.ui.refreshDatabaseLocation().catch((error) => console.error(error));
   app.ui.renderAll();
+});
+
+refs.libraryDatabaseBrowseButton.addEventListener("click", () => {
+  app.ui.chooseDatabaseLocation().catch((error) => {
+    state.databaseLocationStatus = `Database not selected • ${error.message}`;
+    app.ui.renderAll();
+  });
+});
+
+refs.libraryDatabaseDefaultButton.addEventListener("click", () => {
+  app.ui.useDefaultDatabaseLocation().catch((error) => {
+    state.databaseLocationStatus = `Could not select default database • ${error.message}`;
+    app.ui.renderAll();
+  });
 });
 
 refs.optionsRoutingTab.addEventListener("click", () => {

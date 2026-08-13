@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld("spcBoy", {
   refreshTree: (rootPath, selectedFolderPath) =>
     ipcRenderer.invoke("library:refresh-tree", rootPath, selectedFolderPath),
   databaseRoots: () => ipcRenderer.invoke("library:database-roots"),
+  databaseLocation: () => ipcRenderer.invoke("library:database-location"),
+  chooseDatabaseLocation: () => ipcRenderer.invoke("library:database-location-choose"),
+  useDefaultDatabaseLocation: () => ipcRenderer.invoke("library:database-location-default"),
   libraryOperationState: () => ipcRenderer.invoke("library:operation-state"),
   databaseRemoveRoot: (rootId) => ipcRenderer.invoke("library:database-remove-root", rootId),
   databaseSetRootEnabled: (rootId, enabled) => ipcRenderer.invoke("library:database-set-root-enabled", rootId, enabled),

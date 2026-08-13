@@ -8,15 +8,19 @@
 
 ## Ownership
 
-- `electron/library-database.js` owns the SQLite schema, SQL operations, and database path contract. Its `sqlite-worker-client.js` boundary keeps Node's built-in synchronous SQLite API off the Electron main thread.
-- `electron/main.js` owns windows and IPC. `electron/library-scan-service.js` owns scan orchestration; its lifecycle constraints live in `library-scan-lifecycle.md`.
+- MediaScanner owns the canonical CocoaSpice schema-23 catalog contract and is the intended sole writer.
+- `electron/canonical-library-reader.js` owns SPCBoy's production query adapter. Its `sqlite-worker-client.js` connection uses SQLite query-only mode and maps CocoaSpice `author` metadata to SPCBoy's `artist` presentation field.
+- `electron/main.js` owns windows, database-location persistence, native Browse, restart-required state, and guarded IPC. `electron/library-database.js` and `electron/library-scan-service.js` are dormant migration reference, not the production database or scanner.
 - `web/app-library.js` owns renderer-side library root, scanning, and database-maintenance actions; `web/app-ui.js` owns shared rendering and exposes its small dependency surface.
 - `electron/preload.js` exposes database operations without giving the renderer filesystem or database access.
 
 ## Invariants
 
-- The database lives in Electron's user-data directory as `Library.sqlite`.
-- A root scan writes a self-contained generation while retaining records marked in `dead_sources`.
+- The default database is `~/Library/Application Support/CocoaSpice/Library.sqlite`. Options may persist another absolute path only after the staged Swift `media-scan catalog validate` command confirms the current canonical schema and required tables.
+- SPCBoy never initializes, migrates, scans into, clears, or writes playlist metadata back to the shared catalog. Mutation IPC fails explicitly and mutation controls are disabled while the canonical reader is active.
+- A location change never swaps a live worker connection; Options reports that a restart is required.
+- The following staged-generation notes describe the dormant JavaScript implementation retained during extraction, not active SPCBoy behavior.
+- A legacy root scan writes a self-contained generation while retaining records marked in `dead_sources`.
 - WAL readers use query-only worker lanes and keep the active generation visible while bounded physical-source checkpoints commit. Tracks, FTS rows, outcomes, and discovered sources become visible only when a short publish savepoint switches the root generation and game projection; cancellation or failure pauses the staged generation for a validated matching resume.
 - Game rows are root-scoped by `root_id + browser_game + browser_system`. Same-title/same-console records in different library roots remain separate, and database activation binds that exact tuple.
 - Existing active-generation records remain available if a scan fails before publication, even though complete-source checkpoints for the staged generation may already be committed.
@@ -50,6 +54,7 @@
 
 ## Files
 
+- [canonical-library-reader.js](/Users/john/Downloads/Code/SPCBoy/electron/canonical-library-reader.js)
 - [library-database.js](/Users/john/Downloads/Code/SPCBoy/electron/library-database.js)
 - [sqlite-worker-client.js](/Users/john/Downloads/Code/SPCBoy/electron/sqlite-worker-client.js)
 - [sqlite-worker.js](/Users/john/Downloads/Code/SPCBoy/electron/sqlite-worker.js)
