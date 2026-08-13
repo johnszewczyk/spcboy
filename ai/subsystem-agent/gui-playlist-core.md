@@ -25,8 +25,8 @@
 - Previous and next wrap within the current selected-folder playlist.
 - Database rows publish immediately with cached metadata. Known single-track
   rows missing optional metadata hydrate through bounded loose/archive paths;
-  writeback is accepted only while source fingerprints and playable identity
-  still match, and display hydration never changes the stable row identity.
+  enrichment remains in memory and never writes to the MediaScanner catalog.
+  Display hydration never changes the stable row identity.
 
 ## Critical Engineering Notes
 

@@ -33,6 +33,9 @@
   games in separate roots stay distinct.
 - Queue-time metadata may enrich the in-memory playlist but is never written
   back to the catalog.
+- Database activation reads the stored source, archive member, and subtrack
+  identity used by playback; a player never reinterprets that identity as a
+  new catalog row.
 - Search is a temporary third database view independent of the stored Folders
   or Database mode. Clearing it restores the underlying mode.
 - Database game activation preserves stored archive member and libgme subtrack

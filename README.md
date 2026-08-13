@@ -32,6 +32,10 @@ See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for licenses and attribut
 3. Library roots and catalog controls are read-only in SPCBoy. Use the standalone MediaScanner app or CLI to add roots, scan, rebuild, cancel, and resume. The former JavaScript catalog scanner is not part of SPCBoy.
 4. Select a final sidebar item to preview it; double-click it or press Return to play.
 
+Database activation reads the exact source, archive member, and subtrack rows
+published by MediaScanner and places them in SPCBoy's playlist. Playback-time
+archive materialization and display inspection never write back to the catalog.
+
 For local development: `npm test` and `npm run check`.
 
 SPCBoy is released under the [GNU GPL v3](LICENSE).

@@ -2,7 +2,7 @@
 
 ## Library
 
-- Library: opens as the default Options section and lists roots supplied by the shared canonical database.
+- Library is a read-only catalog status page. It lists roots and stored scan health supplied by the shared canonical database.
 - Roots and scanner controls are read-only in SPCBoy. Add, enable, delete, Scan Selected, Deep Scan, Test Files, Clear Unlinked, and Clear Database are disabled; MediaScanner is the catalog writer.
 - Scan Log displays diagnostics already stored with a catalog root. SPCBoy does not start or contain a JavaScript catalog scanner.
 - Archive Cache: Options / Database shows its size and file count, offers a 512 MB–4 GB automatic LRU limit (2 GB by default), and can disable durable playback caching entirely. Cache-off playback materializations are deleted on Stop and abandoned playback scratch roots are recovered at launch; MediaScanner scratch is separate.
