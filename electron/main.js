@@ -6,7 +6,6 @@ const { CanonicalLibraryReader } = require("./canonical-library-reader");
 const { runMediaScanner } = require("./media-scanner-client");
 const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
 const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, isSupportedArchivePath, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
-const { DEFAULT_SCAN_VERSION, scanLibraryRoot: scanLibraryRootService } = require("./library-scan-service");
 const { discoverPhysicalSources } = require("./scanner-discovery");
 const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./scanner-archive");
 const { createPlaylistReader } = require("./library-playlist");
@@ -26,10 +25,8 @@ app.setPath("userData", path.join(app.getPath("appData"), LEGACY_USER_DATA_DIREC
 const ownsSingleInstance = app.requestSingleInstanceLock();
 if (!ownsSingleInstance) app.quit();
 
-const SCAN_VERSION = DEFAULT_SCAN_VERSION;
 const TREE_BUILD_CONCURRENCY = 24;
 const RAW_TREE_CONCURRENCY = 8;
-const LIBRARY_SCAN_CONCURRENCY = 8;
 const METADATA_CACHE_MAX_ENTRIES = 2048;
 const WINDOW_STATE_FILE_NAME = "window-state.json";
 const LIBRARY_DATABASE_LOCATION_FILE_NAME = "library-database-location.json";
@@ -663,7 +660,7 @@ async function isDirectory(targetPath) {
   }
 }
 
-const { inspectTrack, inspectTrackVariants, inspectTrackVariantsForScan } = createTrackInspector({
+const { inspectTrack, inspectTrackVariants } = createTrackInspector({
   nativeAudio,
   cacheMaxEntries: METADATA_CACHE_MAX_ENTRIES
 });
@@ -710,21 +707,6 @@ async function readBrowserDirectory(folderPath) {
       childrenLoaded: true
     }));
   return [...folders, ...files];
-}
-
-async function scanLibraryRoot(rootPath, inheritedJob = null, options = {}) {
-  if (!inheritedJob) return withLibraryJob("Library scan", (job) => scanLibraryRoot(rootPath, job, options));
-  return scanLibraryRootService({
-    rootPath,
-    job: inheritedJob,
-    database: libraryDatabase,
-    inspectTrackVariants: inspectTrackVariantsForScan,
-    onProgress: broadcastLibraryProgress,
-    deepScan: Boolean(options.deepScan),
-    scanVersion: SCAN_VERSION,
-    scanConcurrency: LIBRARY_SCAN_CONCURRENCY,
-    scratchRecovery: scanScratchRecovery
-  });
 }
 
 async function trimMissingLibrary(inheritedJob = null) {
@@ -1300,23 +1282,11 @@ ipcMain.handle("library:database-game-tracks", async (_event, games) => {
     playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
   }));
 });
-ipcMain.handle("library:database-scan", async (_event, rootId, deepScan = false) => {
+ipcMain.handle("library:database-scan", async () => {
   assertLibraryDatabaseWritable();
-  const root = await libraryDatabase.loadRoot(rootId);
-  if (!root) throw new Error("The requested library root is not configured.");
-  return scanLibraryRoot(root.path, null, { deepScan });
 });
-ipcMain.handle("library:database-scan-all", async (_event, deepScan = false) => {
+ipcMain.handle("library:database-scan-all", async () => {
   assertLibraryDatabaseWritable();
-  return withLibraryJob("Library scan", async (job) => {
-    const roots = (await libraryDatabase.loadRoots()).filter((root) => root.is_enabled);
-    const results = [];
-    for (const root of roots) {
-      throwIfLibraryJobCancelled(job);
-      results.push(await scanLibraryRoot(root.path, job, { deepScan }));
-    }
-    return results;
-  });
 });
 ipcMain.handle("library:database-trim-missing", async (event) => {
   assertLibraryDatabaseWritable();

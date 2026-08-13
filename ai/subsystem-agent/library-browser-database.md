@@ -11,7 +11,7 @@
 - MediaScanner owns the canonical CocoaSpice schema-23 catalog contract and is the intended sole writer.
 - `electron/canonical-library-reader.js` owns SPCBoy's production query adapter. Its `sqlite-worker-client.js` connection uses SQLite query-only mode and maps CocoaSpice `author` metadata to SPCBoy's `artist` presentation field.
 - `electron/main.js` owns windows, database-location persistence, native Browse, restart-required state, and guarded IPC. `electron/library-database.js` and `electron/library-scan-service.js` are dormant migration reference, not the production database or scanner.
-- `web/app-library.js` owns renderer-side library root, scanning, and database-maintenance actions; `web/app-ui.js` owns shared rendering and exposes its small dependency surface.
+- `web/app-library.js` retains renderer-side library-root, scanning, and database-maintenance presentation, but mutation actions are disabled in canonical query-only mode; `web/app-ui.js` owns shared rendering and exposes its small dependency surface.
 - `electron/preload.js` exposes database operations without giving the renderer filesystem or database access.
 
 ## Invariants
@@ -40,7 +40,7 @@
 - Scanning expands libgme multi-track files into one record per internal track, preserving `track_index` and `track_count` for database loading and playback.
 - The existing folder-tree browser remains the active main sidebar; Options / Library is limited to root selection and scan controls. Options / Database owns database statistics and maintenance actions.
 - Raw Folders navigation is separate from database scanning: root snapshots enumerate directory entries only. Multi-track libgme containers are enumerated before queue insertion so loose and archived NSF/GBS/AY/HES/KSS/NSFE/SAP sources publish one row per child; other queued rows receive bounded asynchronous metadata inspection. Archive metadata hydration materializes each queued archive once through a shared disposable session.
-- Queue-time metadata updates only matching existing `tracks` rows; it guards source size, modification time, content/archive signature, scan version, member, and subtrack identity before upserting `track_metadata`, without changing `scan_completed` or retry state. Metadata completeness is represented by the metadata row itself; zero or unknown duration is not treated as missing metadata.
+- Queue-time metadata may enrich the in-memory playlist but SPCBoy does not persist that enrichment to the canonical catalog. Metadata completeness is represented by the existing metadata row itself; zero or unknown duration is not treated as missing metadata.
 - Database mode defaults to expandable console groups; the Console View setting controls whether those parent disclosure rows are shown or the game list is flattened.
 - Root removal explicitly deletes that root's indexed tracks before deleting the root record.
 - Publication completes before obsolete-generation cleanup begins. Cleanup failure is logged and leaves the newly published generation active; it must not be reported as though publication rolled back.

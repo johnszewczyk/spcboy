@@ -35,7 +35,7 @@
 
 - Theme: combines the former Sidebar and Playlist appearance controls. The Options navigation is alphabetized as Database, Library, Playback, Routing, and Theme.
 - Theme / Application: Accent Color accepts standard CSS color syntax, including named colors, hexadecimal values, `rgb()`, `hsl()`, and modern color functions supported by the browser. Application Monospace Font changes app chrome text to the system monospace font.
-- Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, Console View, and console-tag source. Collection tags/folders are preferred by default; Prefer Embedded Console Tags rewrites existing database groupings without a scan.
+- Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, and Console View. The console-tag source control is disabled in query-only catalog mode because MediaScanner must own any stored grouping rewrite.
 - Theme / Playlist: independently adjust font size, font color, monospace mode, bold header font, and item spacing.
 - Console View: enables console-grouped database game headings in the main sidebar.
 

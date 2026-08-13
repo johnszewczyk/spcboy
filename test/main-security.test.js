@@ -3,16 +3,16 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-test("main process owns one runtime and resolves scanner roots by configured ID", () => {
+test("main process owns one runtime and does not load the dormant catalog scanner", () => {
   const mainSource = fs.readFileSync(path.join(__dirname, "..", "electron", "main.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "electron", "preload.js"), "utf8");
   const rendererSource = fs.readFileSync(path.join(__dirname, "..", "web", "app-library.js"), "utf8");
 
   assert.match(mainSource, /requestSingleInstanceLock\(\)/);
-  assert.match(mainSource, /const SCAN_VERSION = DEFAULT_SCAN_VERSION/);
-  assert.match(mainSource, /ipcMain\.handle\("library:database-scan", async \(_event, rootId/);
-  assert.match(mainSource, /libraryDatabase\.loadRoot\(rootId\)/);
-  assert.doesNotMatch(mainSource, /ipcMain\.handle\("library:database-scan", async \(_event, rootPath/);
+  assert.match(mainSource, /new CanonicalLibraryReader\(configuredLibraryDatabasePath\(\)\)/);
+  assert.doesNotMatch(mainSource, /require\("\.\/library-scan-service"\)/);
+  assert.match(mainSource, /ipcMain\.handle\("library:database-scan", async \(\) => \{\s*assertLibraryDatabaseWritable\(\);/);
+  assert.doesNotMatch(mainSource, /libraryDatabase\.loadRoot\(rootId\)/);
   assert.doesNotMatch(mainSource, /library:database-add-root/);
   assert.doesNotMatch(preloadSource, /databaseAddRoot/);
   assert.match(preloadSource, /scanDatabaseRoot: \(rootId[\s\S]*Number\(rootId\)/);
