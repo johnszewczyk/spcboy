@@ -5,10 +5,11 @@ const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, powerSaveBloc
 const { LibraryDatabase } = require("./library-database");
 const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
 const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForScan, isSupportedArchivePath, recoverAbandonedScanScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
-const { scanLibraryRoot: scanLibraryRootService } = require("./library-scan-service");
+const { DEFAULT_SCAN_VERSION, scanLibraryRoot: scanLibraryRootService } = require("./library-scan-service");
 const { discoverPhysicalSources } = require("./scanner-discovery");
 const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./scanner-archive");
 const { createPlaylistReader } = require("./library-playlist");
+const { playlistTrackIdentity } = require("./playlist-track-identity");
 const { createNativeAudioTools } = require("./native-audio-tools");
 const { createTrackInspector } = require("./track-inspector");
 const { createPlaylistArchiveMetadataService } = require("./playlist-archive-metadata");
@@ -24,7 +25,7 @@ app.setPath("userData", path.join(app.getPath("appData"), LEGACY_USER_DATA_DIREC
 const ownsSingleInstance = app.requestSingleInstanceLock();
 if (!ownsSingleInstance) app.quit();
 
-const SCAN_VERSION = 3;
+const SCAN_VERSION = DEFAULT_SCAN_VERSION;
 const TREE_BUILD_CONCURRENCY = 24;
 const RAW_TREE_CONCURRENCY = 8;
 const LIBRARY_SCAN_CONCURRENCY = 8;
@@ -51,6 +52,7 @@ let playbackScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
 let archiveCacheRecovery = { recoveredPartialCount: 0, recoveredBytes: 0 };
 let quitAfterLibraryCleanup = false;
 let quitAfterArchivePlaybackCleanup = false;
+const LIBRARY_QUIT_GRACE_MS = 30_000;
 let activeArchivePlaybackMaterialization = null;
 let archiveCacheSettings = { enabled: true, limitBytes: DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES };
 const { readPlaylist, readPlaylistForFile } = createPlaylistReader({
@@ -115,6 +117,7 @@ function cancelLibraryJob(job) {
   if (!job || job.cancelled) return;
   job.cancelled = true;
   job.abortController?.abort(new Error("Library operation cancelled"));
+  if (activeLibraryJob === job) broadcastLibraryOperationState();
 }
 
 function throwIfLibraryJobCancelled(job) {
@@ -124,6 +127,7 @@ function throwIfLibraryJobCancelled(job) {
 function libraryOperationState() {
   return {
     active: Boolean(activeLibraryJob),
+    cancelling: Boolean(activeLibraryJob?.cancelled),
     jobId: activeLibraryJob?.id || 0,
     operation: activeLibraryJob?.operation || null,
     progress: activeLibraryProgress,
@@ -140,6 +144,7 @@ function broadcastLibraryOperationState() {
 }
 
 function broadcastLibraryProgress(progress) {
+  if (activeLibraryJob?.cancelled) return;
   const progressWithJob = {
     ...progress,
     jobId: activeLibraryJob?.id || 0
@@ -1217,7 +1222,11 @@ ipcMain.handle("library:database-search-games", async (_event, query) => searchD
 ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>
   searchDatabaseBrowser(normalizeFolderPath(rootPath), query));
 ipcMain.handle("library:database-game-tracks", async (_event, games) => {
-  return libraryDatabase.tracksForGames(Array.isArray(games) ? games : []);
+  const rows = await libraryDatabase.tracksForGames(Array.isArray(games) ? games : []);
+  return rows.map((row) => ({
+    ...row,
+    playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
+  }));
 });
 ipcMain.handle("library:database-scan", async (_event, rootId, deepScan = false) => {
   const root = await libraryDatabase.loadRoot(rootId);
@@ -1328,6 +1337,28 @@ ipcMain.on("app:appearance-settings-changed", (event, settings) => {
 });
 
 ipcMain.handle("playlist:inspect-track", async (_event, trackPath, sourceName) => inspectTrack(trackPath, sourceName || trackPath));
+ipcMain.handle("playlist:hydrate-loose-metadata", async (_event, track) => {
+  const inspection = await inspectTrack(
+    track.inspectionPath || track.path,
+    track.sourceFilename || track.path
+  );
+  await libraryDatabase?.updatePlaylistMetadata([{
+    path: track.path,
+    trackIndex: track.trackIndex,
+    fileSize: track.fileSize,
+    modifiedAt: track.modifiedAt,
+    sourceSignature: track.sourceSignature,
+    scanVersion: track.scanVersion,
+    metadata: {
+      title: inspection.metadata.song,
+      game: inspection.metadata.game,
+      artist: inspection.metadata.author,
+      system: inspection.metadata.system,
+      playLengthMs: Math.round(Math.max(0, Number(inspection.basePlaybackSeconds) || 0) * 1000)
+    }
+  }]);
+  return inspection;
+});
 ipcMain.handle("playlist:hydrate-archive-metadata", async (_event, tracks) => {
   const updates = await playlistArchiveMetadata.hydrate(tracks);
   await libraryDatabase?.updatePlaylistMetadata(updates.map((update) => ({
@@ -1335,6 +1366,10 @@ ipcMain.handle("playlist:hydrate-archive-metadata", async (_event, tracks) => {
     archivePath: update.archivePath,
     archiveEntry: update.archiveEntry,
     trackIndex: update.trackIndex,
+    fileSize: update.fileSize,
+    modifiedAt: update.modifiedAt,
+    sourceSignature: update.sourceSignature,
+    scanVersion: update.scanVersion,
     metadata: {
       title: update.inspection.metadata.song,
       game: update.inspection.metadata.game,
@@ -1523,10 +1558,20 @@ app.on("before-quit", (event) => {
     event.preventDefault();
     cancelLibraryJob(activeLibraryJob);
     const job = activeLibraryJob;
+    const deadline = Date.now() + LIBRARY_QUIT_GRACE_MS;
     const waitForCleanup = () => {
       if (activeLibraryJob !== job) {
         quitAfterLibraryCleanup = true;
         app.quit();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        // Source checkpoints are independent SQLite savepoints. A forced
+        // process exit leaves the hidden job recoverable and prevents one
+        // defective helper cleanup from hanging macOS termination forever.
+        quitAfterLibraryCleanup = true;
+        nativeAudio.terminate();
+        app.exit(0);
         return;
       }
       setTimeout(waitForCleanup, 25);

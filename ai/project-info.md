@@ -33,6 +33,7 @@ Human-facing behavior:
 Agent engineering notes:
 
 - Sister-app behavioral conformance with CocoaSpice: [cocoaspice-spcboy-conformance.md](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-conformance.md)
+- Sister-app scanner architecture, policy, and remaining validation: [cocoaspice-spcboy-scanner-investigation.md](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-scanner-investigation.md)
 - Main shell and runtime: [gui-main-shell.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-main-shell.md), [build-runtime-bundle.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/build-runtime-bundle.md)
 - Sidebar and root ownership: [gui-sidebar-browser.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-sidebar-browser.md), [gui-sidebar-search.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-sidebar-search.md), [library-root-selection.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/library-root-selection.md), [library-browser-database.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/library-browser-database.md)
 - Library scan and archive lifecycle: [library-scan-lifecycle.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/library-scan-lifecycle.md)

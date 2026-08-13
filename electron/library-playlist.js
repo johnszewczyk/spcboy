@@ -1,3 +1,5 @@
+const { playlistTrackIdentity } = require("./playlist-track-identity");
+
 function createPlaylistReader({ fs, path, supportsPath, routeForPath = () => null, isSupportedArchivePath, discoverPhysicalSources, expandArchiveSources, materializeArchiveEntries, inspectTrackVariants, archiveListConcurrency }) {
   function playlistTrack(source, folderPath, variant = null) {
     const sourcePath = source.archiveEntry ? `${source.path}#${source.archiveEntry}` : source.path;
@@ -8,8 +10,7 @@ function createPlaylistReader({ fs, path, supportsPath, routeForPath = () => nul
     const trackCount = Math.max(1, Number(variant?.trackCount) || 1);
     const inspection = variant?.inspection || null;
     return {
-      id: `${sourcePath}#${trackIndex}`,
-      index: 0,
+      id: playlistTrackIdentity(source.path, source.archiveEntry, trackIndex),
       path: sourcePath,
       trackIndex,
       trackCount,
@@ -59,7 +60,7 @@ function createPlaylistReader({ fs, path, supportsPath, routeForPath = () => nul
         rows.push(...variants.map((variant) => playlistTrack(source, folderPath, variant)));
       }
     }
-    return rows.map((track, index) => ({ ...track, index: index + 1 }));
+    return rows;
   }
 
   async function readPlaylist(folderPath) {

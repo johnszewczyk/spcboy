@@ -13,12 +13,14 @@
 - `electron/main.js` acquires Electron's single-instance lock before initializing the library database or archive cache. A second launch focuses the existing main or Options window and exits.
 - `electron/native-audio-tools.js` owns native helper sessions, one-shot native/external inspection and PCM commands, and format-specific temporary aliases.
 - `electron/native-helper-client.js` owns the framed long-lived native-helper protocol and coalesces concurrent native-state reads before they reach the helper process.
+- `electron/media-scanner-client.js` owns the versioned JSONL boundary to the shared Swift scanner executable. Scanner events are rejected unless their contract name and version match exactly.
 - `electron/preload.js` exposes the allowed IPC surface to the renderer.
 - `web/` contains the renderer HTML, CSS, and JS.
 - `native/libgme-tool` is the local helper built from native sources.
 - `native/libvgm-tool` is a renderer-owned PCM helper; `native/lazyusf-tool` remains the metadata/raw-decoder utility while `native/libgme-tool` owns native libgme and lazyusf2 transport playback.
 - OpenMPT and standard audio renderer-PCM paths use the launch-environment commands `openmpt123`, `ffprobe`, and `ffmpeg`; `SPCBOY_OPENMPT123`, `SPCBOY_FFPROBE`, and `SPCBOY_FFMPEG` override their command names.
 - `./launch.sh` is the local launcher.
+- `scripts/build-media-scanner.sh` builds the sibling `MediaScanner` Swift package and stages its `media-scan` executable under `native/`. The shared package now owns host-neutral metadata/results and plugin protocols as well as routing and scheduling. The staged executable currently supplies the validated plugin/probe process boundary; production catalog scanning still uses the existing scanner until archive/decoder packaging and complete-record parity are implemented.
 - The launch script validates `package.json`, honors `SPCBOY_LIBRARY_ROOT` when set, installs Electron dependencies if missing, incrementally builds the native helper graph, then builds `dist/SPCBoy.app` from Electron's macOS bundle.
 - The built application contains the active `electron/`, `web/`, and `native/` runtime trees beneath `Contents/Resources/app`; it is not a loose renderer staging directory.
 - Before replacing the generated app, launch stops only a runtime whose command line names the old loose bundle or the generated SPCBoy app path. It refuses to replace a runtime still in use, preventing partial asset replacement.

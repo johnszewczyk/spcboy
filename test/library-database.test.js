@@ -236,6 +236,135 @@ test("atomic scans keep the committed sidebar visible and roll back failed repla
   }
 });
 
+test("failed atomic scan setup clears in-process ownership for retry", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-atomic-setup-retry-"));
+  try {
+    const database = new LibraryDatabase(path.join(fixtureRoot, "Library.sqlite"));
+    await database.initialize();
+    await assert.rejects(
+      database.beginAtomicScan(9_999_999, { scanVersion: 4 }),
+      /SQLite operation failed/
+    );
+
+    const root = await database.ensureRoot(path.join(fixtureRoot, "library"));
+    const started = await database.beginAtomicScan(root.id, { scanVersion: 4 });
+    assert.equal(started.resumed, false);
+    await database.rollbackAtomicScan(root.id);
+    await database.close();
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("startup pauses interrupted scans and retains completed source checkpoints", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-resume-scan-"));
+  const databasePath = path.join(fixtureRoot, "Library.sqlite");
+  const libraryPath = path.join(fixtureRoot, "library");
+  const sourcePath = path.join(libraryPath, "Resumed.spc");
+  const scanRecord = {
+    folderPath: libraryPath,
+    path: sourcePath,
+    filename: "Resumed.spc",
+    extension: ".spc",
+    backendId: "libgme",
+    trackIndex: 0,
+    trackCount: 1,
+    fileSize: 42,
+    modifiedAt: 123,
+    sourceSignature: "content-v1",
+    scanCompleted: true,
+    scanVersion: 4,
+    metadata: { title: "Theme", game: "Resumed", artist: "", system: "SNES", playLengthMs: 0 }
+  };
+  try {
+    const first = new LibraryDatabase(databasePath);
+    await first.initialize();
+    const root = await first.ensureRoot(libraryPath);
+    const start = await first.beginAtomicScan(root.id, { deepScan: false, scanVersion: 4 });
+    assert.equal(start.resumed, false);
+    await first.checkpointScanSource(root.id, {
+      sourcePath,
+      fileSize: 42,
+      modifiedAt: 123,
+      contentSignature: "content-v1",
+      records: [scanRecord]
+    });
+    await first.close();
+
+    const reopened = new LibraryDatabase(databasePath);
+    await reopened.initialize();
+    const stateClient = new SqliteWorkerClient(databasePath);
+    const job = (await stateClient.query(`SELECT state FROM scan_jobs WHERE root_id=${Number(root.id)};`))[0];
+    await stateClient.close();
+    assert.equal(job.state, "paused");
+    const resumed = await reopened.beginAtomicScan(root.id, { deepScan: false, scanVersion: 4 });
+    assert.equal(resumed.resumed, true);
+    assert.deepEqual(await reopened.loadScanCheckpoints(root.id), [{
+      sourcePath,
+      fileSize: 42,
+      modifiedAt: 123,
+      contentSignature: "content-v1",
+      recordCount: 1
+    }]);
+    await reopened.markUndiscoveredSourcesDead(root.id, [sourcePath]);
+    await reopened.replaceTracks(root.id, [], { fileCount: 1, successCount: 1 });
+    await reopened.commitAtomicScan(root.id);
+    assert.deepEqual((await reopened.loadGames()).map((game) => game.name), ["Resumed"]);
+    assert.deepEqual(await reopened.loadScanCheckpoints(root.id), []);
+    await reopened.close();
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("serializes concurrent source checkpoints as complete savepoint scopes", async () => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-concurrent-checkpoints-"));
+  const databasePath = path.join(fixtureRoot, "Library.sqlite");
+  const libraryPath = path.join(fixtureRoot, "library");
+  try {
+    const database = new LibraryDatabase(databasePath);
+    await database.initialize();
+    const root = await database.ensureRoot(libraryPath);
+    await database.beginAtomicScan(root.id, { deepScan: false, scanVersion: 4 });
+
+    const checkpointCount = 24;
+    await Promise.all(Array.from({ length: checkpointCount }, (_, index) => {
+      const sourcePath = path.join(libraryPath, `Track ${index}.spc`);
+      return database.checkpointScanSource(root.id, {
+        sourcePath,
+        fileSize: 100 + index,
+        modifiedAt: 1_000 + index,
+        contentSignature: `signature-${index}`,
+        records: [{
+          folderPath: libraryPath,
+          path: sourcePath,
+          filename: `Track ${index}.spc`,
+          extension: ".spc",
+          backendId: "libgme",
+          trackIndex: 0,
+          trackCount: 1,
+          fileSize: 100 + index,
+          modifiedAt: 1_000 + index,
+          sourceSignature: `signature-${index}`,
+          scanCompleted: true,
+          scanVersion: 4,
+          metadata: { title: `Track ${index}`, game: "Concurrent", artist: "", system: "SNES", playLengthMs: 0 }
+        }]
+      });
+    }));
+
+    assert.equal((await database.loadScanCheckpoints(root.id)).length, checkpointCount);
+    const client = new SqliteWorkerClient(databasePath);
+    const staged = await client.query(`SELECT COUNT(*) AS count FROM tracks WHERE root_id=${Number(root.id)};`);
+    await client.close();
+    assert.equal(Number(staged[0].count), checkpointCount);
+    await database.rollbackAtomicScan(root.id);
+    await database.close();
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("replaces changed archive members by source, not member spelling", async () => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-library-repack-"));
   try {
@@ -336,6 +465,14 @@ test("retains queue-time metadata for matching loose and archive tracks", async 
       { archivePath, archiveEntry: "./folder/track.vgm", trackIndex: 0, metadata: { title: "Archive tag", game: "Archive game", artist: "Archive artist", system: "Master System", playLengthMs: 3000 } },
       { path: path.join(fixtureRoot, "not-indexed.vgm"), trackIndex: 0, metadata: { title: "Ignored", game: "", artist: "", system: "", playLengthMs: 1 } }
     ]);
+    await database.updatePlaylistMetadata([{
+      path: loosePath,
+      trackIndex: 0,
+      fileSize: 999,
+      modifiedAt: 999,
+      scanVersion: 1,
+      metadata: { title: "Stale", game: "Stale", artist: "Stale", system: "Stale", playLengthMs: 9999 }
+    }]);
 
     const rows = await database.indexedTrackRecords(root.id);
     assert.deepEqual(rows.map((row) => [row.archivePath, row.title, row.game, row.artist, row.system, row.playLengthMs]), [

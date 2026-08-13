@@ -9,6 +9,7 @@ test("main process owns one runtime and resolves scanner roots by configured ID"
   const rendererSource = fs.readFileSync(path.join(__dirname, "..", "web", "app-library.js"), "utf8");
 
   assert.match(mainSource, /requestSingleInstanceLock\(\)/);
+  assert.match(mainSource, /const SCAN_VERSION = DEFAULT_SCAN_VERSION/);
   assert.match(mainSource, /ipcMain\.handle\("library:database-scan", async \(_event, rootId/);
   assert.match(mainSource, /libraryDatabase\.loadRoot\(rootId\)/);
   assert.doesNotMatch(mainSource, /ipcMain\.handle\("library:database-scan", async \(_event, rootPath/);
@@ -34,4 +35,14 @@ test("window focus raises only the requested window and sidebar search is mode i
   assert.doesNotMatch(markup, /id="sidebar-folder-mode-button"/);
   assert.doesNotMatch(markup, /id="sidebar-database-mode-button"/);
   assert.match(markup, /id="sidebar-view-toggle-button"/);
+});
+
+test("playlist number column is a display-only line count", () => {
+  const coreSource = fs.readFileSync(path.join(__dirname, "..", "web", "app-core.js"), "utf8");
+  const rendererSource = fs.readFileSync(path.join(__dirname, "..", "web", "app-ui.js"), "utf8");
+
+  assert.match(coreSource, /id: "index"[^\n]*sortable: false/);
+  assert.match(coreSource, /value !== "index"/);
+  assert.match(rendererSource, /column\.id === "index"\) return rowIndex === null \? "" : rowIndex \+ 1/);
+  assert.doesNotMatch(rendererSource, /track, index\) => \(\{ \.\.\.track, index: index \+ 1 \}\)/);
 });

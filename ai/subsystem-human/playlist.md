@@ -7,6 +7,7 @@
 - Columns: order is draggable and persisted.
 - Columns: headers are centered, resizable, sortable, and support right-click show/hide controls.
 - Columns: all visible columns snap to their longest content when a playlist loads; double-click a header seam to snap one column again.
+- The `#` column shows the current visible line number. It does not assign track identity or create a playlist sort order.
 - Sorting: filename ascending is the default.
 - Metadata: rows queue immediately, then metadata fills visible values asynchronously. Raw-folder rows use up to four direct inspections; archive rows share one archive materialization session and persist matching indexed metadata. Unknown database/archive lengths are hydrated when queued rather than waiting for playback, and VGM/VGZ GD3 tags do not wait for playback.
 - Multi-track NSF and GBS files: each internal song appears as its own playlist row for both loose and archived sources.

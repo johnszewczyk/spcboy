@@ -6,6 +6,8 @@ const BACKEND_MODULES = Object.freeze([
     helper: "libgme-tool",
     extensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap", ".spc"]),
     multiTrackExtensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap"]),
+    structurePolicy: "known-single-or-enumerate",
+    metadataPolicy: "direct-or-decoder",
     playbackSpeedMode: "native-tempo",
     playbackSpeedExtensions: Object.freeze([".ay", ".gbs", ".hes", ".kss", ".nsf", ".nsfe", ".sap", ".spc"]),
     scanConcurrency: 1,
@@ -17,6 +19,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libvgm-tool",
     extensions: Object.freeze([".gym", ".s98", ".vgm", ".vgz"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "direct",
     playbackSpeedMode: "native-tempo",
     playbackSpeedExtensions: Object.freeze([".gym", ".s98", ".vgm", ".vgz"]),
     scanConcurrency: 1,
@@ -28,6 +32,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libgme-tool",
     extensions: Object.freeze([".usf", ".miniusf"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "direct",
     archivePolicy: "dependency-set",
     scanConcurrency: 1,
     scanTimeoutSeconds: 60
@@ -38,6 +44,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libgme-tool",
     extensions: Object.freeze([".gsf", ".minigsf"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "decoder",
     archivePolicy: "dependency-set",
     scanConcurrency: 1,
     scanTimeoutSeconds: 60
@@ -48,6 +56,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "renderer-pcm",
     helper: "openmpt123",
     extensions: Object.freeze([".xm"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "optional-deferred",
     scanConcurrency: 2,
     scanTimeoutSeconds: 60
   }),
@@ -57,6 +67,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "renderer-pcm",
     helper: "ffmpeg",
     extensions: Object.freeze([".aac", ".aif", ".aiff", ".flac", ".m4a", ".mp2", ".mp3", ".tak", ".wav"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "optional-deferred",
     scanConcurrency: 2,
     scanTimeoutSeconds: 60
   }),
@@ -66,6 +78,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libgme-tool",
     extensions: Object.freeze([".2sf", ".mini2sf"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "direct",
     archivePolicy: "dependency-set",
     scanConcurrency: 1,
     scanTimeoutSeconds: 60
@@ -76,6 +90,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libgme-tool",
     extensions: Object.freeze([".aa3", ".adp", ".adpcm", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bik", ".bika", ".bk2", ".bnk", ".fsb", ".genh", ".hd", ".hbd", ".iecs", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".ps3", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".txtp", ".vag", ".xa", ".xmd", ".xvag"]),
+    structurePolicy: "dependency-enumerate",
+    metadataPolicy: "decoder",
     archivePolicy: "dependency-set-when-required",
     scanConcurrency: 2,
     scanTimeoutSeconds: 60
@@ -86,6 +102,8 @@ const BACKEND_MODULES = Object.freeze([
     playbackMode: "native-session",
     helper: "libgme-tool",
     extensions: Object.freeze([".psf", ".minipsf", ".psf2", ".minipsf2"]),
+    structurePolicy: "known-single",
+    metadataPolicy: "direct",
     archivePolicy: "dependency-set",
     scanConcurrency: 1,
     scanTimeoutSeconds: 60
@@ -150,6 +168,13 @@ function routeForPath(filePath, { archiveMember = false, preferredBackendId = nu
   const extension = extensionForPath(filePath);
   const backend = backendForPath(filePath, { preferredBackendId });
   if (!backend) return null;
+  const supportsMultiTrack = Boolean(backend.multiTrackExtensions?.includes(extension));
+  const structurePolicy = backend.structurePolicy === "known-single-or-enumerate"
+    ? (supportsMultiTrack ? "enumerate" : "known-single")
+    : backend.structurePolicy || (supportsMultiTrack ? "enumerate" : "known-single");
+  const metadataPolicy = backend.metadataPolicy === "direct-or-decoder"
+    ? (extension === ".spc" ? "direct" : "decoder")
+    : backend.metadataPolicy || "decoder";
   return Object.freeze({
     backendId: backend.id,
     displayName: backend.displayName,
@@ -160,7 +185,9 @@ function routeForPath(filePath, { archiveMember = false, preferredBackendId = nu
     scanConcurrency: backend.scanConcurrency || 1,
     scanTimeoutSeconds: backend.scanTimeoutSeconds || 60,
     playbackSpeedMode: backend.playbackSpeedExtensions?.includes(extension) ? backend.playbackSpeedMode || null : null,
-    supportsMultiTrack: Boolean(backend.multiTrackExtensions?.includes(extension))
+    supportsMultiTrack,
+    structurePolicy,
+    metadataPolicy
   });
 }
 

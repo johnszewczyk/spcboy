@@ -1,4 +1,8 @@
 const zlib = require("zlib");
+const { promisify } = require("util");
+const gunzipAsync = promisify(zlib.gunzip);
+const MAX_VGM_INPUT_BYTES = 64 * 1024 * 1024;
+const MAX_VGM_OUTPUT_BYTES = 256 * 1024 * 1024;
 
 function readFixedText(buffer, offset, length, encoding = "latin1") {
   if (offset < 0 || offset + length > buffer.length) return "";
@@ -140,8 +144,13 @@ function readVgmMetadataBuffer(buffer) {
 
 async function readVgmMetadata(filePath) {
   try {
-    let buffer = await require("fs").promises.readFile(filePath);
-    if (buffer[0] === 0x1f && buffer[1] === 0x8b) buffer = zlib.gunzipSync(buffer);
+    const fileSystem = require("fs").promises;
+    const stat = await fileSystem.stat(filePath);
+    if (stat.size > MAX_VGM_INPUT_BYTES) return null;
+    let buffer = await fileSystem.readFile(filePath);
+    if (buffer[0] === 0x1f && buffer[1] === 0x8b) {
+      buffer = await gunzipAsync(buffer, { maxOutputLength: MAX_VGM_OUTPUT_BYTES });
+    }
     return readVgmMetadataBuffer(buffer);
   } catch {
     return null;
@@ -152,15 +161,77 @@ async function readSpcMetadata(filePath) {
   try {
     const buffer = await require("fs").promises.readFile(filePath);
     const magic = "SNES-SPC700 Sound File Data";
-    if (buffer.length < 0x100 || buffer.toString("ascii", 0, magic.length) !== magic || buffer[0x23] !== 0x1a) return null;
-    const playLengthSeconds = Number.parseInt(readFixedText(buffer, 0xa9, 3), 10) || 0;
-    const fadeLength = Number.parseInt(readFixedText(buffer, 0xac, 5), 10) || 0;
+    if (buffer.length < 0x100 || buffer.toString("ascii", 0, magic.length) !== magic) return null;
+
+    let legacy = null;
+    if (buffer[0x23] === 0x1a) {
+      const date = buffer.subarray(0x9e, 0xa9);
+      const textFade = buffer.subarray(0xac, 0xb1);
+      const containsTextDate = [...date].every((value) => value === 0 || value === 0x20 || (value >= 0x2f && value <= 0x39))
+        && [...date].some((value) => value >= 0x2f && value <= 0x39);
+      const containsTextFade = [...textFade].every((value) => value === 0 || value === 0x20 || (value >= 0x30 && value <= 0x39))
+        && [...textFade].some((value) => value >= 0x30 && value <= 0x39);
+      const binaryLayout = !containsTextDate && !containsTextFade && buffer[0xb0] > 0 && buffer[0xb0] <= 0x7f;
+      legacy = {
+        title: readFixedText(buffer, 0x2e, 32),
+        game: readFixedText(buffer, 0x4e, 32),
+        artist: readFixedText(buffer, binaryLayout ? 0xb0 : 0xb1, 32),
+        comment: readFixedText(buffer, 0x7e, 32),
+        play_length: (Number.parseInt(readFixedText(buffer, 0xa9, 3), 10) || 0) * 1000,
+        fade_length: binaryLayout ? buffer.readUInt32LE(0xac) : Number.parseInt(readFixedText(buffer, 0xac, 5), 10) || 0
+      };
+    }
+
+    let extended = null;
+    const extendedOffset = 0x10200;
+    if (buffer.length >= extendedOffset + 8 && buffer.toString("ascii", extendedOffset, extendedOffset + 4) === "xid6") {
+      const payloadLength = buffer.readUInt32LE(extendedOffset + 4);
+      const payloadStart = extendedOffset + 8;
+      const payloadEnd = payloadStart + payloadLength;
+      if (payloadEnd <= buffer.length) {
+        extended = {};
+        let offset = payloadStart;
+        while (offset + 4 <= payloadEnd) {
+          const itemId = buffer[offset];
+          const type = buffer[offset + 1];
+          const storedLength = buffer.readUInt16LE(offset + 2);
+          offset += 4;
+          let payload = Buffer.alloc(0);
+          if (type === 1 || type === 4) {
+            if (offset + storedLength > payloadEnd) {
+              extended = null;
+              break;
+            }
+            payload = buffer.subarray(offset, offset + storedLength);
+            offset += (storedLength + 3) & ~3;
+            if (offset > payloadEnd) {
+              extended = null;
+              break;
+            }
+          } else if (type !== 0) {
+            extended = null;
+            break;
+          }
+          const textValue = () => payload.toString("latin1").replace(/\0.*$/s, "").trim();
+          const ticks = () => payload.length === 4 ? Math.floor(payload.readUInt32LE(0) * 1000 / 64000) : 0;
+          if (itemId === 0x01 && type === 1) extended.title = textValue();
+          if (itemId === 0x02 && type === 1) extended.game = textValue();
+          if (itemId === 0x03 && type === 1) extended.artist = textValue();
+          if (itemId === 0x07 && type === 1) extended.comment = textValue();
+          if (itemId === 0x30 && type === 4) extended.intro_length = ticks();
+          if (itemId === 0x31 && type === 4) extended.loop_length = ticks();
+          if (itemId === 0x32 && type === 4) extended.play_length = ticks();
+          if (itemId === 0x33 && type === 4) extended.fade_length = ticks();
+        }
+      }
+    }
+    if (!legacy && !extended) return null;
     return {
-      title: readFixedText(buffer, 0x2e, 32),
-      game: readFixedText(buffer, 0x4e, 32),
-      artist: readFixedText(buffer, 0xb1, 32),
-      play_length: playLengthSeconds * 1000,
-      fade_length: fadeLength
+      title: extended?.title || legacy?.title || "",
+      game: extended?.game || legacy?.game || "",
+      artist: extended?.artist || legacy?.artist || "",
+      play_length: extended?.play_length || legacy?.play_length || 0,
+      fade_length: extended?.fade_length || legacy?.fade_length || 0
     };
   } catch {
     return null;

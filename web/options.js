@@ -9,6 +9,6 @@
   document.getElementById("scan").onclick = () => run("Scan", () => api.scanAllDatabaseRoots());
   document.getElementById("trim").onclick = () => run("Trim Missing", () => api.trimMissingDatabaseSources());
   cancel.onclick = () => api.cancelLibraryOperation();
-  api.onLibraryScanProgress(p => { const n=String(p.path||"").split(/[\\/]/).pop(); const label=p.operation === "trim" ? "Checking" : p.operation === "stream" && p.stage === "archiveListing" ? "Listing archive" : "Scanning"; status.textContent=`${label} ${p.total ? `${p.completed}/${p.total} · ` : ""}${n}`; });
+  api.onLibraryScanProgress(p => { const n=String(p.path||"").split(/[\\/]/).pop(); const phases={preparing:"Preparing",discovery:"Discovering",planning:"Planning",archiveListing:"Listing archives",materialization:"Extracting archive",inspection:"Inspecting metadata",persistence:"Saving scan",publication:"Publishing scan",cleanup:"Cleaning up scan"}; const label=p.operation === "trim" ? "Checking" : phases[p.phase] || (p.operation === "stream" && p.stage === "archiveListing" ? "Listing archive" : "Scanning"); status.textContent=`${label} ${p.total ? `${p.completed}/${p.total} · ` : ""}${n}`; });
   render().catch(e => { status.textContent=e.message; });
 })();

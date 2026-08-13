@@ -1,11 +1,14 @@
 const path = require("path");
 const fs = require("fs").promises;
 const { randomUUID } = require("crypto");
+const { AsyncLocalStorage } = require("async_hooks");
 const { normalizeArchiveEntry } = require("./archive-path");
 const { SqliteWorkerClient } = require("./sqlite-worker-client");
 
 const sqliteClients = new Map();
 let nextSavepointId = 0;
+const savepointContext = new AsyncLocalStorage();
+const savepointTails = new Map();
 const slowSQLiteMilliseconds = Math.max(1, Number(process.env.SPCBOY_SLOW_SQL_MS) || 250);
 
 function sqlText(value) {
@@ -170,16 +173,40 @@ function gameSidebarBucketStatements(rootIds = null) {
 }
 
 async function runInSavepoint(databasePath, statements) {
-  const name = `spcboy_tx_${++nextSavepointId}`;
-  const body = Array.isArray(statements) ? statements.join("\n") : String(statements || "");
-  await run(databasePath, `SAVEPOINT ${name};`);
-  try {
+  const executeBody = async () => {
     if (typeof statements === "function") await statements();
-    else await run(databasePath, body);
+    else await run(databasePath, Array.isArray(statements) ? statements.join("\n") : String(statements || ""));
+  };
+
+  // Database helpers compose transactionally (for example a scan checkpoint
+  // calls replaceTracks). Re-enter the owning scope instead of creating a
+  // nested savepoint that a concurrent checkpoint could release out of order.
+  if (savepointContext.getStore() === databasePath) {
+    await executeBody();
+    return;
+  }
+
+  // The SQLite worker serializes individual requests, not the asynchronous
+  // interval between SAVEPOINT and RELEASE. Serialize that complete interval
+  // per database so concurrent scanner workers cannot interleave savepoints.
+  const predecessor = savepointTails.get(databasePath) || Promise.resolve();
+  let releaseTurn;
+  const turn = new Promise((resolve) => { releaseTurn = resolve; });
+  const tail = predecessor.catch(() => {}).then(() => turn);
+  savepointTails.set(databasePath, tail);
+  await predecessor.catch(() => {});
+
+  const name = `spcboy_tx_${++nextSavepointId}`;
+  try {
+    await run(databasePath, `SAVEPOINT ${name};`);
+    await savepointContext.run(databasePath, executeBody);
     await run(databasePath, `RELEASE SAVEPOINT ${name};`);
   } catch (error) {
     await run(databasePath, `ROLLBACK TO SAVEPOINT ${name}; RELEASE SAVEPOINT ${name};`).catch(() => {});
     throw error;
+  } finally {
+    releaseTurn();
+    if (savepointTails.get(databasePath) === tail) savepointTails.delete(databasePath);
   }
 }
 
@@ -240,6 +267,7 @@ class LibraryDatabase {
     this.atomicScanStats = null;
     this.atomicScanStartedAt = null;
     this.atomicScanInitialStorage = null;
+    this.atomicScanResumed = false;
     this.lastAtomicScanMetrics = null;
     this.preferEmbeddedConsoleTags = false;
   }
@@ -251,13 +279,45 @@ class LibraryDatabase {
     await Promise.all(clients.map(([, client]) => client.close()));
   }
 
-  async beginAtomicScan(rootId) {
+  async beginAtomicScan(rootId, { deepScan = false, scanVersion = 0 } = {}) {
     if (this.atomicScanRootId !== null) throw new Error("An atomic library scan is already active");
     this.atomicScanInitialStorage = await this.databaseStorageMetrics().catch(() => ({ databaseBytes: 0, walBytes: 0, sharedMemoryBytes: 0 }));
     this.atomicScanRootId = Number(rootId);
-    this.atomicScanGeneration = randomUUID();
-    this.atomicScanStats = null;
-    this.atomicScanStartedAt = process.hrtime.bigint();
+    try {
+      const existing = (await run(this.databasePath, `
+        SELECT scan_generation AS generation, deep_scan AS deepScan, scan_version AS scanVersion
+        FROM scan_jobs WHERE root_id=${sqlNumber(rootId)} LIMIT 1;
+      `, true))[0];
+      const policyMatches = existing
+        && Number(existing.deepScan) === (deepScan ? 1 : 0)
+        && Number(existing.scanVersion) === Number(scanVersion || 0);
+      if (existing && !policyMatches) {
+        await this.cleanupScanGeneration(rootId, String(existing.generation));
+      }
+      this.atomicScanGeneration = policyMatches ? String(existing.generation) : randomUUID();
+      this.atomicScanResumed = Boolean(policyMatches);
+      await run(this.databasePath, `
+        INSERT INTO scan_jobs(root_id, scan_generation, state, deep_scan, scan_version, created_at, updated_at)
+        VALUES(${sqlNumber(rootId)}, ${sqlText(this.atomicScanGeneration)}, 'active', ${deepScan ? 1 : 0}, ${sqlNumber(scanVersion)}, ${sqlNumber(Date.now() / 1000)}, ${sqlNumber(Date.now() / 1000)})
+        ON CONFLICT(root_id) DO UPDATE SET
+          scan_generation=excluded.scan_generation,
+          state='active',
+          deep_scan=excluded.deep_scan,
+          scan_version=excluded.scan_version,
+          updated_at=excluded.updated_at;
+      `);
+      this.atomicScanStats = null;
+      this.atomicScanStartedAt = process.hrtime.bigint();
+      return { generation: this.atomicScanGeneration, resumed: this.atomicScanResumed };
+    } catch (error) {
+      this.atomicScanRootId = null;
+      this.atomicScanGeneration = null;
+      this.atomicScanStats = null;
+      this.atomicScanStartedAt = null;
+      this.atomicScanInitialStorage = null;
+      this.atomicScanResumed = false;
+      throw error;
+    }
   }
 
   async commitAtomicScan(rootId) {
@@ -305,6 +365,9 @@ class LibraryDatabase {
           last_scan_log=${stats.errorLog ? sqlText(stats.errorLog) : "NULL"},
           needs_rescan=${stats.needsRescan ? 1 : 0}
       WHERE id=${sqlNumber(rootId)};
+      DELETE FROM scan_source_checkpoints
+      WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)};
+      DELETE FROM scan_jobs WHERE root_id=${sqlNumber(rootId)};
     `);
     const publishCompletedAt = process.hrtime.bigint();
     const stagingDurationMs = this.atomicScanStartedAt === null
@@ -317,6 +380,7 @@ class LibraryDatabase {
     this.atomicScanStats = null;
     this.atomicScanStartedAt = null;
     this.atomicScanInitialStorage = null;
+    this.atomicScanResumed = false;
     const cleanupStartedAt = process.hrtime.bigint();
     await this.cleanupObsoleteScanGenerations(rootId).catch((error) => {
       console.warn(`[SPCBoy] obsolete scan generation cleanup failed: ${error.message}`);
@@ -342,6 +406,28 @@ class LibraryDatabase {
       this.atomicScanStats = null;
       this.atomicScanStartedAt = null;
       this.atomicScanInitialStorage = null;
+      this.atomicScanResumed = false;
+    }
+  }
+
+  async pauseAtomicScan(rootId, { failed = false, message = "" } = {}) {
+    if (this.atomicScanRootId === null) return;
+    if (this.atomicScanRootId !== Number(rootId)) throw new Error("Atomic library scan root does not match the active transaction");
+    try {
+      await run(this.databasePath, `
+        UPDATE scan_jobs
+        SET state=${sqlText(failed ? "failed" : "paused")},
+            last_error=${message ? sqlText(message) : "NULL"},
+            updated_at=${sqlNumber(Date.now() / 1000)}
+        WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)};
+      `);
+    } finally {
+      this.atomicScanRootId = null;
+      this.atomicScanGeneration = null;
+      this.atomicScanStats = null;
+      this.atomicScanStartedAt = null;
+      this.atomicScanInitialStorage = null;
+      this.atomicScanResumed = false;
     }
   }
 
@@ -353,7 +439,7 @@ class LibraryDatabase {
       const ids = rows.map((row) => sqlNumber(row.id)).join(",");
       await runInSavepoint(this.databasePath, `DELETE FROM track_search WHERE rowid IN (${ids}); DELETE FROM tracks WHERE id IN (${ids});`);
     }
-    await run(this.databasePath, `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)}; DELETE FROM scan_generation_sources WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)};`);
+    await run(this.databasePath, `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)}; DELETE FROM scan_generation_sources WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)}; DELETE FROM scan_source_checkpoints WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)}; DELETE FROM scan_jobs WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(generation)};`);
   }
 
   async cleanupObsoleteScanGenerations(rootId) {
@@ -362,6 +448,10 @@ class LibraryDatabase {
         SELECT t.id
         FROM tracks t JOIN library_roots r ON r.id=t.root_id
         WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation<>r.active_scan_generation
+          AND NOT EXISTS (
+            SELECT 1 FROM scan_jobs j
+            WHERE j.root_id=t.root_id AND j.scan_generation=t.scan_generation
+          )
           AND NOT EXISTS (
             SELECT 1 FROM dead_sources d
             WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path)
@@ -377,11 +467,21 @@ class LibraryDatabase {
       WHERE root_id=${sqlNumber(rootId)}
         AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)})
         AND NOT EXISTS (
+          SELECT 1 FROM scan_jobs j
+          WHERE j.root_id=library_scan_outcomes.root_id
+            AND j.scan_generation=library_scan_outcomes.scan_generation
+        )
+        AND NOT EXISTS (
           SELECT 1 FROM dead_sources d
           WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path
         );
       DELETE FROM scan_generation_sources
-      WHERE root_id=${sqlNumber(rootId)} AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)});
+      WHERE root_id=${sqlNumber(rootId)} AND scan_generation<>(SELECT active_scan_generation FROM library_roots WHERE id=${sqlNumber(rootId)})
+        AND NOT EXISTS (
+          SELECT 1 FROM scan_jobs j
+          WHERE j.root_id=scan_generation_sources.root_id
+            AND j.scan_generation=scan_generation_sources.scan_generation
+        );
     `);
   }
 
@@ -488,6 +588,27 @@ class LibraryDatabase {
         path TEXT NOT NULL,
         PRIMARY KEY(root_id, scan_generation, path)
       );
+      CREATE TABLE IF NOT EXISTS scan_jobs (
+        root_id INTEGER PRIMARY KEY REFERENCES library_roots(id) ON DELETE CASCADE,
+        scan_generation TEXT NOT NULL UNIQUE,
+        state TEXT NOT NULL,
+        deep_scan INTEGER NOT NULL DEFAULT 0,
+        scan_version INTEGER NOT NULL DEFAULT 0,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        last_error TEXT
+      );
+      CREATE TABLE IF NOT EXISTS scan_source_checkpoints (
+        root_id INTEGER NOT NULL REFERENCES library_roots(id) ON DELETE CASCADE,
+        scan_generation TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        modified_at REAL NOT NULL,
+        content_signature TEXT,
+        record_count INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY(root_id, scan_generation, source_path)
+      );
       CREATE INDEX IF NOT EXISTS tracks_root_idx ON tracks(root_id);
       CREATE INDEX IF NOT EXISTS tracks_folder_idx ON tracks(folder_path);
       CREATE INDEX IF NOT EXISTS scan_outcomes_root_idx ON library_scan_outcomes(root_id, id);
@@ -518,7 +639,12 @@ class LibraryDatabase {
     ]) {
       await addColumnIfMissing(this.databasePath, table, column, definition);
     }
-    await run(this.databasePath, "CREATE INDEX IF NOT EXISTS tracks_generation_idx ON tracks(root_id, scan_generation); CREATE INDEX IF NOT EXISTS scan_outcomes_generation_idx ON library_scan_outcomes(root_id, scan_generation, id);");
+    await run(this.databasePath, "CREATE INDEX IF NOT EXISTS tracks_generation_idx ON tracks(root_id, scan_generation); CREATE INDEX IF NOT EXISTS scan_outcomes_generation_idx ON library_scan_outcomes(root_id, scan_generation, id); CREATE INDEX IF NOT EXISTS scan_checkpoints_generation_idx ON scan_source_checkpoints(root_id, scan_generation);");
+    await run(this.databasePath, `
+      UPDATE scan_jobs
+      SET state='paused', updated_at=${sqlNumber(Date.now() / 1000)}
+      WHERE state='active';
+    `);
     await run(this.databasePath, "DROP INDEX IF EXISTS tracks_game_idx; CREATE INDEX IF NOT EXISTS tracks_browser_bucket_index ON tracks(root_id, browser_game, browser_system);");
     await run(this.databasePath, "CREATE VIRTUAL TABLE IF NOT EXISTS track_search USING fts5(content);");
     const browserBucketsBackfilled = await run(this.databasePath, "SELECT 1 FROM library_schema_state WHERE key='browser-buckets-v1';", true);
@@ -682,6 +808,54 @@ class LibraryDatabase {
     await run(this.databasePath, `UPDATE library_roots SET last_scan_started_at=${sqlNumber(Date.now() / 1000)}, last_scan_error=NULL, last_scan_file_count=0, last_scan_success_count=0, last_scan_error_count=0, last_scan_log=NULL WHERE id=${sqlNumber(rootId)};`);
   }
 
+  async loadScanCheckpoints(rootId) {
+    if (this.atomicScanRootId !== Number(rootId) || !this.atomicScanGeneration) return [];
+    return run(this.databasePath, `
+      SELECT source_path AS sourcePath, file_size AS fileSize,
+             modified_at AS modifiedAt, content_signature AS contentSignature,
+             record_count AS recordCount
+      FROM scan_source_checkpoints
+      WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)}
+      ORDER BY source_path;
+    `, true);
+  }
+
+  async checkpointScanSource(rootId, {
+    sourcePath,
+    fileSize = 0,
+    modifiedAt = 0,
+    contentSignature = null,
+    records = [],
+    outcomes = [],
+    archive = false
+  } = {}) {
+    if (this.atomicScanRootId !== Number(rootId) || !this.atomicScanGeneration) {
+      throw new Error("Cannot checkpoint a source without an active staged scan");
+    }
+    const normalizedPath = String(sourcePath || "");
+    if (!normalizedPath) throw new Error("Cannot checkpoint an empty source path");
+    const replaceSource = archive ? { archivePath: normalizedPath } : { path: normalizedPath };
+    await runInSavepoint(this.databasePath, async () => {
+      await this.replaceTracks(rootId, records, {
+        outcomes,
+        replaceSources: [replaceSource],
+        partial: true
+      });
+      await run(this.databasePath, `
+        INSERT INTO scan_source_checkpoints(root_id, scan_generation, source_path, file_size, modified_at, content_signature, record_count, updated_at)
+        VALUES(${sqlNumber(rootId)}, ${sqlText(this.atomicScanGeneration)}, ${sqlText(normalizedPath)}, ${sqlNumber(fileSize)}, ${sqlNumber(modifiedAt)}, ${contentSignature ? sqlText(contentSignature) : "NULL"}, ${sqlNumber(records.length)}, ${sqlNumber(Date.now() / 1000)})
+        ON CONFLICT(root_id, scan_generation, source_path) DO UPDATE SET
+          file_size=excluded.file_size,
+          modified_at=excluded.modified_at,
+          content_signature=excluded.content_signature,
+          record_count=excluded.record_count,
+          updated_at=excluded.updated_at;
+        UPDATE scan_jobs SET updated_at=${sqlNumber(Date.now() / 1000)}
+        WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)};
+      `);
+    });
+  }
+
   async replaceTracks(rootId, records, scanStats = {}) {
     const now = Date.now() / 1000;
     const libraryRoot = await this.loadRoot(rootId);
@@ -709,7 +883,7 @@ class LibraryDatabase {
     const cleanupOutcomes = replaceSources
       ? `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(scanGeneration)}${outcomePredicates.length ? ` AND (${outcomePredicates.join(" OR ")})` : " AND 0"};`
       : `DELETE FROM library_scan_outcomes WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(scanGeneration)} AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=library_scan_outcomes.root_id AND d.path=library_scan_outcomes.source_path);`;
-    if (!staged) await runInSavepoint(this.databasePath, [cleanupSearch, cleanupTracks, cleanupOutcomes]);
+    if (!staged || replaceSources) await runInSavepoint(this.databasePath, [cleanupSearch, cleanupTracks, cleanupOutcomes]);
     const insertTrackSQL = "INSERT INTO tracks(root_id, folder_path, path, filename, extension, backend_id, track_index, track_count, file_size, modified_at, discovered_at, special_audio_kind, archive_path, archive_entry, archive_signature, source_signature, scan_completed, scan_version, browser_game, browser_system, scan_generation) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     const insertMetadataSQL = "INSERT INTO track_metadata(track_id, title, game, artist, system, play_length_ms, metadata_scanned_at) VALUES(last_insert_rowid(), ?, ?, ?, ?, ?, ?);";
     const insertSearchSQL = `INSERT INTO track_search(rowid, content) SELECT t.id, ${searchDocumentExpression()} FROM tracks t LEFT JOIN track_metadata m ON m.track_id=t.id WHERE t.id=last_insert_rowid();`;
@@ -761,6 +935,7 @@ class LibraryDatabase {
       await runInSavepoint(this.databasePath, () => runPreparedBatch(this.databasePath, commands));
     }
     if (staged) {
+      if (scanStats.partial) return;
       this.atomicScanStats = {
         completedAt: now,
         fileCount: Number(scanStats.fileCount) || 0,
@@ -807,7 +982,13 @@ class LibraryDatabase {
           ? `archive_path IS NULL AND path=${sqlText(update.path)} AND track_index=${sqlNumber(update.trackIndex)}`
           : null;
       if (!predicate) continue;
-      const activePredicate = `(${predicate}) AND scan_generation=(SELECT active_scan_generation FROM library_roots WHERE id=tracks.root_id)`;
+      const fingerprintPredicates = [];
+      if (Number.isFinite(Number(update.fileSize))) fingerprintPredicates.push(`file_size=${sqlNumber(update.fileSize)}`);
+      if (Number.isFinite(Number(update.modifiedAt))) fingerprintPredicates.push(`modified_at=${sqlNumber(update.modifiedAt)}`);
+      if (update.sourceSignature) fingerprintPredicates.push(`source_signature=${sqlText(update.sourceSignature)}`);
+      if (Number.isFinite(Number(update.scanVersion))) fingerprintPredicates.push(`scan_version=${sqlNumber(update.scanVersion)}`);
+      const fingerprintGuard = fingerprintPredicates.length ? ` AND ${fingerprintPredicates.join(" AND ")}` : "";
+      const activePredicate = `(${predicate})${fingerprintGuard} AND scan_generation=(SELECT active_scan_generation FROM library_roots WHERE id=tracks.root_id)`;
       changedPredicates.push(`(${activePredicate})`);
       // Queue-time tag hydration must preserve the source-derived console
       // bucket. Build each update from the existing source columns in SQL,
@@ -897,9 +1078,46 @@ class LibraryDatabase {
         sql: "INSERT OR IGNORE INTO scan_generation_sources(root_id, scan_generation, path) VALUES(?, ?, ?);",
         params: [this.atomicScanRootId, this.atomicScanGeneration, sourcePath]
       }));
-      for (let index = 0; index < commands.length; index += 2000) {
-        await runPreparedBatch(this.databasePath, commands.slice(index, index + 2000));
-      }
+      await runInSavepoint(this.databasePath, async () => {
+        await run(this.databasePath, `DELETE FROM scan_generation_sources WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)};`);
+        for (let index = 0; index < commands.length; index += 2000) {
+          await runPreparedBatch(this.databasePath, commands.slice(index, index + 2000));
+        }
+        await run(this.databasePath, `
+          DELETE FROM track_search WHERE rowid IN (
+            SELECT t.id FROM tracks t
+            WHERE t.root_id=${sqlNumber(rootId)} AND t.scan_generation=${sqlText(this.atomicScanGeneration)}
+              AND NOT EXISTS (
+                SELECT 1 FROM scan_generation_sources s
+                WHERE s.root_id=t.root_id AND s.scan_generation=t.scan_generation
+                  AND s.path=COALESCE(t.archive_path, t.path)
+              )
+          );
+          DELETE FROM tracks
+          WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)}
+            AND NOT EXISTS (
+              SELECT 1 FROM scan_generation_sources s
+              WHERE s.root_id=tracks.root_id AND s.scan_generation=tracks.scan_generation
+                AND s.path=COALESCE(tracks.archive_path, tracks.path)
+            );
+          DELETE FROM library_scan_outcomes
+          WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)}
+            AND NOT EXISTS (
+              SELECT 1 FROM scan_generation_sources s
+              WHERE s.root_id=library_scan_outcomes.root_id
+                AND s.scan_generation=library_scan_outcomes.scan_generation
+                AND s.path=library_scan_outcomes.source_path
+            );
+          DELETE FROM scan_source_checkpoints
+          WHERE root_id=${sqlNumber(rootId)} AND scan_generation=${sqlText(this.atomicScanGeneration)}
+            AND NOT EXISTS (
+              SELECT 1 FROM scan_generation_sources s
+              WHERE s.root_id=scan_source_checkpoints.root_id
+                AND s.scan_generation=scan_source_checkpoints.scan_generation
+                AND s.path=scan_source_checkpoints.source_path
+            );
+        `);
+      });
       return;
     }
     const values = [...new Set(livePaths)].map((value) => sqlText(value)).join(",");
@@ -1152,6 +1370,9 @@ class LibraryDatabase {
         FROM json_each(${sqlText(selection)})
       )
       SELECT r.path AS rootPath, t.path, t.filename, t.special_audio_kind AS specialAudioKind, t.archive_path AS archivePath, t.archive_entry AS archiveEntry, t.track_index AS trackIndex, t.track_count AS trackCount,
+             t.file_size AS fileSize, t.modified_at AS modifiedAt,
+             t.source_signature AS sourceSignature, t.scan_version AS scanVersion,
+             m.track_id AS metadataTrackId,
              COALESCE(m.title, '') AS title, COALESCE(m.game, '') AS game,
              COALESCE(m.artist, '') AS artist, COALESCE(m.system, '') AS system,
              COALESCE(m.play_length_ms, 0) AS playLengthMs

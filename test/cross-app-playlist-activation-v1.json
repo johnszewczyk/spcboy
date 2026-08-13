@@ -1,0 +1,43 @@
+{
+  "contract": "cocoaspice-spcboy-playlist-activation",
+  "version": 1,
+  "cases": [
+    {
+      "id": "loose-nsf-children",
+      "sourcePath": "/music/Nintendo Entertainment System/Castlevania/castlevania.nsf",
+      "archiveEntry": null,
+      "trackCount": 3,
+      "metadataBefore": ["Track 1", "Track 2", "Track 3"],
+      "metadataAfter": ["Prologue", "Vampire Killer", "Game Over"],
+      "expectedTrackIDs": [
+        "pt1|f|64|/music/Nintendo Entertainment System/Castlevania/castlevania.nsf|0",
+        "pt1|f|64|/music/Nintendo Entertainment System/Castlevania/castlevania.nsf|1",
+        "pt1|f|64|/music/Nintendo Entertainment System/Castlevania/castlevania.nsf|2"
+      ]
+    },
+    {
+      "id": "archived-gbs-children-with-delimiters",
+      "sourcePath": "/music/Sony PlayStation/Game#Collection.tar.zst",
+      "archiveEntry": "disc::music/game.gbs",
+      "trackCount": 2,
+      "metadataBefore": ["Track 1", "Track 2"],
+      "metadataAfter": ["Opening", "Stage 1"],
+      "expectedTrackIDs": [
+        "pt1|a|47|/music/Sony PlayStation/Game#Collection.tar.zst|20|disc::music/game.gbs|0",
+        "pt1|a|47|/music/Sony PlayStation/Game#Collection.tar.zst|20|disc::music/game.gbs|1"
+      ]
+    },
+    {
+      "id": "loose-source-with-identity-delimiters",
+      "sourcePath": "/music/Names|With|Pipes/game.nsf",
+      "archiveEntry": null,
+      "trackCount": 2,
+      "metadataBefore": ["Track 1", "Track 2"],
+      "metadataAfter": ["First", "Second"],
+      "expectedTrackIDs": [
+        "pt1|f|32|/music/Names|With|Pipes/game.nsf|0",
+        "pt1|f|32|/music/Names|With|Pipes/game.nsf|1"
+      ]
+    }
+  ]
+}

@@ -164,7 +164,9 @@ test("scan service coordinates discovery, inspection, progress, and one database
       scanConcurrency: 1,
       scanTimeoutSeconds: 60,
       playbackSpeedMode: "native-tempo",
-      supportsMultiTrack: true
+      supportsMultiTrack: true,
+      structurePolicy: "enumerate",
+      metadataPolicy: "decoder"
     },
     trackIndex: 0,
     specialAudioKind: null
@@ -174,7 +176,7 @@ test("scan service coordinates discovery, inspection, progress, and one database
   assert.equal(calls.replaced.records[0].metadata.title, "Song");
   assert.equal(calls.replaced.records[0].scanCompleted, true);
   assert.match(calls.replaced.records[0].sourceSignature, /^[0-9a-f]{64}$/);
-  assert.equal(calls.replaced.records[0].scanVersion, 3);
+  assert.equal(calls.replaced.records[0].scanVersion, 4);
   assert.equal(calls.began, true);
   assert.equal(calls.committed, true);
   assert.deepEqual(calls.discoveredSources, [{ rootId: 7, paths: [trackPath] }]);
@@ -184,6 +186,51 @@ test("scan service coordinates discovery, inspection, progress, and one database
   assert.equal(result.scanSummary.byStage.playback, 1);
   assert.equal(calls.progress[0].operation, "prepare");
   assert.equal(calls.progress.at(-1).operation, "scan");
+  assert.deepEqual([...new Set(calls.progress.map((progress) => progress.phase))], [
+    "preparing",
+    "discovery",
+    "planning",
+    "archiveListing",
+    "inspection",
+    "persistence",
+    "publication"
+  ]);
+});
+
+test("known single-track deferred metadata catalogs without launching an inspector", async (t) => {
+  const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-deferred-catalog-"));
+  t.after(() => fs.rm(rootPath, { recursive: true, force: true }));
+  const trackPath = path.join(rootPath, "song.flac");
+  await fs.writeFile(trackPath, "fixture", "utf8");
+  const roots = [{ id: 81, path: rootPath, last_scan_track_count: 0 }];
+  let persisted = [];
+  const database = {
+    async ensureRoot() { return roots[0]; },
+    async markScanStarted() {},
+    async beginAtomicScan() { return { resumed: false }; },
+    async commitAtomicScan() {},
+    async rollbackAtomicScan() {},
+    async indexedTrackRecords() { return []; },
+    async restoreSources() {},
+    async markUndiscoveredSourcesDead() {},
+    async replaceTracks(_rootId, records) {
+      persisted = records;
+      roots[0].last_scan_track_count = records.length;
+    },
+    async loadRoots() { return roots; },
+    async markScanFailed(_rootId, message) { throw new Error(message); }
+  };
+  await scanLibraryRoot({
+    rootPath,
+    job: { cancelled: false },
+    database,
+    scanConcurrency: 1,
+    inspectTrackVariants: async () => { throw new Error("deferred metadata must not inspect during catalog"); }
+  });
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].trackCount, 1);
+  assert.equal(persisted[0].metadata, null);
+  assert.equal(persisted[0].scanCompleted, true);
 });
 
 test("cancelled archive scans settle only after their scratch root is removed", async (t) => {

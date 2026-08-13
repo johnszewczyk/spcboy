@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld("spcBoy", {
   configureArchiveCache: (settings) => ipcRenderer.invoke("library:archive-cache-configure", settings || {}),
   cancelLibraryOperation: () => ipcRenderer.invoke("library:database-cancel-operation"),
   inspectTrack: (trackPath, sourceName) => ipcRenderer.invoke("playlist:inspect-track", trackPath, sourceName),
+  hydrateLooseMetadata: (track) => ipcRenderer.invoke("playlist:hydrate-loose-metadata", track || {}),
   hydrateArchiveMetadata: (tracks) => ipcRenderer.invoke("playlist:hydrate-archive-metadata", tracks),
   materializeTrack: (archivePath, archiveEntry) => ipcRenderer.invoke("playlist:materialize-track", archivePath, archiveEntry),
   releaseMaterializedTrack: () => ipcRenderer.invoke("playlist:release-materialized-track"),

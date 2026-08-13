@@ -6,8 +6,9 @@ const { routeForPath, routeForArchiveEntry } = require("./playback-core");
 const { createScanOutcome, formatScanOutcome, summarizeScanOutcomes } = require("./scanner-model");
 const { discoverPhysicalSources } = require("./scanner-discovery");
 const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./scanner-archive");
+const { createScannerPhaseTimeline } = require("./scanner-lifecycle");
 
-const DEFAULT_SCAN_VERSION = 3;
+const DEFAULT_SCAN_VERSION = 4;
 const DEFAULT_SCAN_CONCURRENCY = 8;
 const DEFAULT_SCAN_SCRATCH_BUDGET_BYTES = 8 * 1024 * 1024 * 1024;
 const MIN_FREE_SCRATCH_BYTES = 2 * 1024 * 1024 * 1024;
@@ -125,6 +126,12 @@ function backendIdForSource(source) {
   return routeForSource(source)?.backendId || null;
 }
 
+function catalogOnlyVariants(source) {
+  const route = routeForSource(source);
+  if (route?.structurePolicy !== "known-single" || route?.metadataPolicy !== "optional-deferred") return null;
+  return [{ trackIndex: 0, trackCount: 1, inspection: null }];
+}
+
 function fallbackRecord(source, scanVersion) {
   const displayPath = source.archiveEntry ? `${source.archivePath}#${source.archiveEntry}` : source.path;
   return {
@@ -213,10 +220,14 @@ async function scanLibraryRoot({
     getSummary: scratchSummary,
     getAvailableBytes: scratchAvailableBytes
   });
-  const reportProgress = (progress) => onProgress({ ...progress, scratch: scratchBudget.snapshot() });
+  const phaseTimeline = createScannerPhaseTimeline();
+  const reportProgress = (phase, progress) => onProgress(phaseTimeline.enter(phase, {
+    ...progress,
+    scratch: scratchBudget.snapshot()
+  }));
   try {
-    await database.beginAtomicScan(root.id);
-    reportProgress({ operation: "prepare", completed: 0, total: 0, path: resolvedRoot });
+    const atomicScan = await database.beginAtomicScan(root.id, { deepScan, scanVersion });
+    reportProgress("preparing", { operation: atomicScan?.resumed ? "resume" : "prepare", completed: 0, total: 0, path: resolvedRoot });
     const scanWarnings = [];
     const scanOutcomes = [];
     const indexedTracks = indexIndexedTracks(await database.indexedTrackRecords(root.id));
@@ -241,7 +252,7 @@ async function scanLibraryRoot({
     const physicalSources = await discoverPhysicalSources(resolvedRoot, {
       job,
       onProgress: ({ folderPath, visitedFolders, discoveredFiles }) => {
-        reportProgress({
+        reportProgress("discovery", {
           operation: "discover",
           completed: discoveredFiles,
           total: 0,
@@ -262,14 +273,52 @@ async function scanLibraryRoot({
       }
     });
     const discoveredSourcePaths = physicalSources.map((source) => source.archivePath || source.path);
+    reportProgress("planning", {
+      operation: "prepare",
+      completed: physicalSources.length,
+      total: physicalSources.length,
+      path: resolvedRoot
+    });
     await database.markUndiscoveredSourcesDead(
       root.id,
       discoveredSourcePaths
     );
 
+    const checkpointRows = typeof database.loadScanCheckpoints === "function"
+      ? await database.loadScanCheckpoints(root.id)
+      : [];
+    const checkpointsByPath = new Map(checkpointRows.map((entry) => [path.resolve(String(entry.sourcePath)), entry]));
+    const resumedSourcePaths = new Set();
+    let resumedRecordCount = 0;
+
+    async function checkpointMatches(source, stat, contentSignature = null) {
+      const sourcePath = path.resolve(String(source.archivePath || source.path));
+      const checkpoint = checkpointsByPath.get(sourcePath);
+      if (!checkpoint) return false;
+      if (Number(checkpoint.fileSize) !== Number(stat.size)
+          || Number(checkpoint.modifiedAt) !== Number(stat.mtimeMs / 1000)) return false;
+      if (checkpoint.contentSignature) {
+        const signature = contentSignature || await fastSourceSignature(sourcePath, stat);
+        if (String(signature) !== String(checkpoint.contentSignature)) return false;
+        source.sourceSignature = signature;
+      }
+      resumedSourcePaths.add(sourcePath);
+      resumedRecordCount += Number(checkpoint.recordCount) || 0;
+      return true;
+    }
+
     const physicalSourcesNeedingExpansion = [];
     for (const source of physicalSources) {
       if (!source.archivePath) {
+        const checkpoint = checkpointsByPath.get(path.resolve(source.path));
+        if (checkpoint) {
+          try {
+            const stat = await fs.stat(source.path);
+            if (await checkpointMatches(source, stat)) continue;
+          } catch {
+            // Normal inspection records the typed filesystem failure.
+          }
+        }
         physicalSourcesNeedingExpansion.push(source);
         continue;
       }
@@ -277,13 +326,15 @@ async function scanLibraryRoot({
       try {
         const stat = await fs.stat(source.archivePath);
         source.sourceSignature = await fastArchiveSignature(source.archivePath);
+        if (await checkpointMatches(source, stat, source.sourceSignature)) continue;
         reusable = (deepScan || root.needs_rescan) ? null : reusableRecordsForArchive(
           archiveRowsByPath.get(source.archivePath),
           source.archivePath,
           stat,
           source.sourceSignature,
           scanVersion,
-          (archiveEntry) => routeForArchiveEntry(archiveEntry)?.backendId || null
+          (archiveEntry) => routeForArchiveEntry(archiveEntry)?.backendId || null,
+          (archiveEntry) => routeForArchiveEntry(archiveEntry)?.metadataPolicy !== "optional-deferred"
         );
       } catch {
         reusable = null;
@@ -295,6 +346,12 @@ async function scanLibraryRoot({
       }
     }
 
+    reportProgress("archiveListing", {
+      operation: "scan",
+      completed: reusableArchiveRecords.length + resumedRecordCount,
+      total: physicalSources.length,
+      path: resolvedRoot
+    });
     const trackPaths = await expandArchiveSources(physicalSourcesNeedingExpansion, {
       rootPath: resolvedRoot,
       job,
@@ -312,22 +369,29 @@ async function scanLibraryRoot({
       }
     });
     const reusedArchiveSourceCount = new Set(reusableArchiveRecords.map((record) => `${record.archivePath || record.path}\u0000${record.archiveEntry || ""}`)).size;
-    const totalScanSources = trackPaths.length + reusedArchiveSourceCount;
-    reportProgress({
+    const totalScanSources = trackPaths.length + reusedArchiveSourceCount + resumedRecordCount;
+    reportProgress("inspection", {
       operation: "scan",
       rootPath: resolvedRoot,
-      completed: reusedArchiveSourceCount,
+      completed: reusedArchiveSourceCount + resumedRecordCount,
       total: totalScanSources,
       path: resolvedRoot
     });
 
     const scanErrors = [];
     const recordsBySource = new Array(trackPaths.length);
+    const outcomesBySource = new Array(trackPaths.length);
+    const checkpointEligibleBySource = new Array(trackPaths.length).fill(false);
     const sourceStats = new Map();
     const sharedScanMaterializations = new Map();
     const archivePendingSources = new Map();
     const archiveEntriesByPath = new Map();
-    for (const source of trackPaths) {
+    const sourceIndicesByPath = new Map();
+    for (const [sourceIndex, source] of trackPaths.entries()) {
+      const physicalPath = path.resolve(source.archivePath || source.path);
+      const indices = sourceIndicesByPath.get(physicalPath) || [];
+      indices.push(sourceIndex);
+      sourceIndicesByPath.set(physicalPath, indices);
       if (source.archivePath && source.archiveEntry) {
         archivePendingSources.set(source.archivePath, (archivePendingSources.get(source.archivePath) || 0) + 1);
         const entries = archiveEntriesByPath.get(source.archivePath) || [];
@@ -336,8 +400,10 @@ async function scanLibraryRoot({
       }
     }
     let lastProgressAt = 0;
-    let completedCount = reusedArchiveSourceCount;
+    let completedCount = reusedArchiveSourceCount + resumedRecordCount;
     let nextIndex = 0;
+    const checkpointedPhysicalSources = new Set();
+    const persistedOutcomeObjects = new Set();
     async function statForSource(source) {
       const sourcePath = source.archivePath || source.path;
       if (!sourceStats.has(sourcePath)) sourceStats.set(sourcePath, fs.stat(sourcePath));
@@ -348,6 +414,12 @@ async function scanLibraryRoot({
       const archivePath = source.archivePath;
       let sessionPromise = sharedScanMaterializations.get(archivePath);
       if (!sessionPromise) {
+        reportProgress("materialization", {
+          operation: "scan",
+          completed: completedCount,
+          total: totalScanSources,
+          path: archivePath
+        });
         await scratchBudget.ensureArchiveCapacity(archivePath);
         const entryPaths = archiveEntriesByPath.get(archivePath) || [];
         sessionPromise = materializeArchiveEntriesForScan(archivePath, entryPaths, {
@@ -379,7 +451,7 @@ async function scanLibraryRoot({
       const now = Date.now();
       if (now - lastProgressAt >= 100 || index + 1 === trackPaths.length) {
         lastProgressAt = now;
-        reportProgress({
+        reportProgress("inspection", {
           operation: "scan",
           rootPath: resolvedRoot,
           completed: completedCount,
@@ -388,12 +460,41 @@ async function scanLibraryRoot({
         });
       }
     }
+    async function checkpointCompletedPhysicalSource(source) {
+      if (typeof database.checkpointScanSource !== "function") return;
+      const physicalPath = path.resolve(source.archivePath || source.path);
+      if (checkpointedPhysicalSources.has(physicalPath)) return;
+      const indices = sourceIndicesByPath.get(physicalPath) || [];
+      if (!indices.length
+          || indices.some((index) => recordsBySource[index] === undefined)
+          || indices.some((index) => !checkpointEligibleBySource[index])) return;
+      checkpointedPhysicalSources.add(physicalPath);
+      const stat = await statForSource(source);
+      const records = indices.flatMap((index) => recordsBySource[index] || []);
+      const outcomes = indices.flatMap((index) => outcomesBySource[index] || []);
+      try {
+        await database.checkpointScanSource(root.id, {
+          sourcePath: physicalPath,
+          fileSize: stat.size,
+          modifiedAt: stat.mtimeMs / 1000,
+          contentSignature: source.sourceSignature || null,
+          records,
+          outcomes,
+          archive: Boolean(source.archivePath)
+        });
+        for (const outcome of outcomes) persistedOutcomeObjects.add(outcome);
+      } catch (error) {
+        checkpointedPhysicalSources.delete(physicalPath);
+        throw error;
+      }
+    }
     async function scanWorker() {
       while (nextIndex < trackPaths.length) {
         throwIfCancelled(job);
         const index = nextIndex;
         nextIndex += 1;
         const source = trackPaths[index];
+        const sourceOutcomes = [];
         let stat;
         try {
           stat = await statForSource(source);
@@ -407,8 +508,10 @@ async function scanLibraryRoot({
             message: `could not read file attributes (${error.message})`
           });
           scanOutcomes.push(outcome);
+          sourceOutcomes.push(outcome);
           scanErrors.push(formatScanOutcome(outcome));
           recordsBySource[index] = [fallbackRecord(source, scanVersion)];
+          outcomesBySource[index] = sourceOutcomes;
           publishScanProgress(source, index);
           continue;
         }
@@ -417,10 +520,14 @@ async function scanLibraryRoot({
           stat,
           indexedTracks.get(sourceKey(source)),
           scanVersion,
-          backendIdForSource(source)
+          backendIdForSource(source),
+          routeForSource(source)?.metadataPolicy !== "optional-deferred"
         );
         if (reusableRecords) {
           recordsBySource[index] = reusableRecords;
+          outcomesBySource[index] = sourceOutcomes;
+          checkpointEligibleBySource[index] = true;
+          await checkpointCompletedPhysicalSource(source);
           await releaseArchiveMaterialization(source);
           publishScanProgress(source, index);
           continue;
@@ -428,10 +535,10 @@ async function scanLibraryRoot({
 
         let playablePath = source.path;
         let scanMaterialization = null;
-        let variants = [];
+        let variants = catalogOnlyVariants(source) || [];
         let failureOutcome = null;
         try {
-          if (source.archiveEntry) {
+          if (source.archiveEntry && variants.length === 0) {
             scanMaterialization = await materializationForSource(source);
             playablePath = scanMaterialization.path;
           }
@@ -446,7 +553,9 @@ async function scanLibraryRoot({
         }
         if (!failureOutcome) {
           try {
-            variants = await inspectTrackVariants(playablePath, source.archiveEntry || source.path, { signal: job?.signal || null });
+            if (variants.length === 0) {
+              variants = await inspectTrackVariants(playablePath, source.archiveEntry || source.path, { signal: job?.signal || null });
+            }
             throwIfCancelled(job);
           } catch (error) {
             failureOutcome = createScanOutcome({
@@ -471,13 +580,15 @@ async function scanLibraryRoot({
               });
               throwIfCancelled(job);
             }
-            scanOutcomes.push(createScanOutcome({
+            const outcome = createScanOutcome({
               identity: sourceIdentity(resolvedRoot, source),
               route: routeForSource(source),
               stage: "playback",
               state: "successful",
               durationMs: Date.now() - startedAt
-            }));
+            });
+            scanOutcomes.push(outcome);
+            sourceOutcomes.push(outcome);
           } catch (error) {
             const outcome = createScanOutcome({
               identity: sourceIdentity(resolvedRoot, source),
@@ -488,6 +599,7 @@ async function scanLibraryRoot({
               message: error.message
             });
             scanOutcomes.push(outcome);
+            sourceOutcomes.push(outcome);
             scanErrors.push(formatScanOutcome(outcome));
           }
         }
@@ -497,6 +609,7 @@ async function scanLibraryRoot({
         }
         if (failureOutcome) {
           scanOutcomes.push(failureOutcome);
+          sourceOutcomes.push(failureOutcome);
           if (failureOutcome.state !== "unsupported") scanErrors.push(formatScanOutcome(failureOutcome));
         } else if (variants.length === 0) {
           failureOutcome = createScanOutcome({
@@ -507,21 +620,27 @@ async function scanLibraryRoot({
             message: "decoder returned no playable tracks"
           });
           scanOutcomes.push(failureOutcome);
+          sourceOutcomes.push(failureOutcome);
           scanErrors.push(formatScanOutcome(failureOutcome));
         } else {
-          scanOutcomes.push(createScanOutcome({
+          const outcome = createScanOutcome({
             identity: sourceIdentity(resolvedRoot, source),
             route: routeForSource(source),
             stage: "metadata",
             state: "successful"
-          }));
+          });
+          scanOutcomes.push(outcome);
+          sourceOutcomes.push(outcome);
         }
         // Archive members are grouped only while that archive is being
         // inspected. Retaining every shared extraction until the full root
         // finishes turned the safety budget into a cumulative 8 GB cap and
         // made later JoshW entries fail even though earlier roots were idle.
-        await releaseArchiveMaterialization(source);
         recordsBySource[index] = recordsForVariants(source, stat, variants, failureOutcome, scanVersion);
+        outcomesBySource[index] = sourceOutcomes;
+        checkpointEligibleBySource[index] = !failureOutcome || failureOutcome.state === "unsupported";
+        await checkpointCompletedPhysicalSource(source);
+        await releaseArchiveMaterialization(source);
         publishScanProgress(source, index);
       }
     }
@@ -535,7 +654,12 @@ async function scanLibraryRoot({
       await scratchBudget.refresh();
     }
     throwIfCancelled(job);
-    const allRecords = [...reusableArchiveRecords, ...recordsBySource.flat()];
+    const uncheckpointedRecords = recordsBySource.flatMap((records, index) => {
+      const source = trackPaths[index];
+      const physicalPath = source ? path.resolve(source.archivePath || source.path) : "";
+      return checkpointedPhysicalSources.has(physicalPath) ? [] : (records || []);
+    });
+    const allRecords = [...reusableArchiveRecords, ...uncheckpointedRecords];
     // A generation is self-contained: unchanged reusable records are copied
     // into the staged generation so publication is one root-pointer switch.
     const records = allRecords;
@@ -547,22 +671,50 @@ async function scanLibraryRoot({
     });
     const errorCount = scanLog.length;
     const scanSummary = summarizeScanOutcomes(scanOutcomes);
+    reportProgress("persistence", {
+      operation: "scan",
+      completed: totalScanSources,
+      total: totalScanSources,
+      path: resolvedRoot
+    });
     await database.replaceTracks(root.id, records, {
       fileCount: trackPaths.length + reusableArchiveRecords.length,
       successCount: Math.max(0, trackPaths.length + reusableArchiveRecords.length - scanErrors.length),
       errorCount,
       errors: scanLog,
-      outcomes: scanOutcomes,
+      outcomes: scanOutcomes.filter((outcome) => !persistedOutcomeObjects.has(outcome)),
       outcomeSummary: scanSummary,
       needsRescan,
       replaceSources: null
     });
+    reportProgress("publication", {
+      operation: "scan",
+      completed: totalScanSources,
+      total: totalScanSources,
+      path: resolvedRoot
+    });
     await database.commitAtomicScan(root.id);
     const rootRows = await database.loadRoots();
     const currentRoot = rootRows.find((entry) => Number(entry.id) === Number(root.id));
-    return { root: rootRows, trackCount: Number(currentRoot?.last_scan_track_count) || 0, warningCount: errorCount, scanSummary, scratch: scratchBudget.snapshot() };
+    return {
+      root: rootRows,
+      trackCount: Number(currentRoot?.last_scan_track_count) || 0,
+      warningCount: errorCount,
+      resumedSourceCount: resumedSourcePaths.size,
+      telemetry: phaseTimeline.snapshot(),
+      scanSummary,
+      scratch: scratchBudget.snapshot()
+    };
   } catch (error) {
-    await database.rollbackAtomicScan(root.id);
+    reportProgress("cleanup", { operation: "scan", completed: 0, total: 0, path: resolvedRoot });
+    if (typeof database.pauseAtomicScan === "function") {
+      await database.pauseAtomicScan(root.id, {
+        failed: !isCancellation(error),
+        message: isCancellation(error) ? "" : error.message
+      });
+    } else {
+      await database.rollbackAtomicScan(root.id);
+    }
     if (!isCancellation(error)) await database.markScanFailed(root.id, error.message);
     throw error;
   }

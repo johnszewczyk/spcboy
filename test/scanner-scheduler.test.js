@@ -15,6 +15,26 @@ test("limits concurrent scanner operations", async () => {
   assert.equal(maximum, 1);
 });
 
+test("cancelled limiter waiters settle immediately without consuming capacity", async () => {
+  const run = createAsyncLimiter(1);
+  let releaseFirst;
+  let queuedOperationRan = false;
+  const first = run(() => new Promise((resolve) => { releaseFirst = resolve; }));
+  while (!releaseFirst) await new Promise((resolve) => setImmediate(resolve));
+
+  const controller = new AbortController();
+  const queued = run(async () => {
+    queuedOperationRan = true;
+  }, { signal: controller.signal });
+  controller.abort(new Error("Library operation cancelled"));
+
+  await assert.rejects(queued, /Library operation cancelled/);
+  assert.equal(queuedOperationRan, false);
+  releaseFirst();
+  await first;
+  assert.equal(await run(async () => 42), 42);
+});
+
 test("times out bounded scanner work", async () => {
   let aborted = false;
   await assert.rejects(

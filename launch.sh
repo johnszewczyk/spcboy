@@ -29,6 +29,7 @@ if [[ ! -d "$ROOT_DIR/node_modules/electron" ]]; then
   npm install --prefix "$ROOT_DIR"
 fi
 
+"$ROOT_DIR/scripts/build-media-scanner.sh"
 "$ROOT_DIR/scripts/build-lazyusf-helper.sh"
 "$ROOT_DIR/scripts/build-mgba-helper.sh"
 "$ROOT_DIR/scripts/build-libvgm-helper.sh"
@@ -118,6 +119,10 @@ if [[ -n "$SPCBOY_LIBRARY_ROOT" ]]; then
   echo "Library root: $SPCBOY_LIBRARY_ROOT"
 else
 echo "Library root: configured Library Paths"
+fi
+if [[ "${LAUNCHPAD_BUILD_ONLY:-0}" == "1" ]]; then
+  echo "Build-only mode: not launching SPCBoy"
+  exit 0
 fi
 # Rebuilding replaces the bundle in place. LaunchServices can hold an old
 # Electron executable record for that bundle and report kLSNoExecutableErr

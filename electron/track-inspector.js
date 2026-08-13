@@ -155,7 +155,7 @@ function createTrackInspector({ nativeAudio, cacheMaxEntries = DEFAULT_CACHE_MAX
       route.scanTimeoutSeconds * 1000,
       `${route.backendId} metadata inspection for ${sourceName}`,
       { signal }
-    ));
+    ), { signal });
   }
 
   return { inspectTrack, inspectTrackVariants, inspectTrackVariantsForScan };

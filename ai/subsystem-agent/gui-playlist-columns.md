@@ -18,6 +18,7 @@
 - A newly loaded playlist autosizes all visible columns to their longest rendered content; double-clicking a header seam autosizes only that column.
 - Auto-sizing keys off the rendered visible-column content, so metadata hydration remeasures columns after titles, games, artists, systems, or lengths change.
 - Auto-sizing gives the playlist table the measured content width; wide playlists use the existing horizontal scroller instead of squeezing every column back into the viewport.
+- The `index` column is display-only. Derive its value from the rendered row position after sorting; never persist it on a track or allow it to become a sort key.
 - Filename ascending is the default playlist sort; clicking a header toggles ascending and descending order.
 
 ## Critical Engineering Notes

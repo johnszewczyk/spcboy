@@ -313,7 +313,7 @@ function appendPlaylistTracks(additions, selectedBrowserPath = state.selectedBro
   if (!uniqueAdditions.length) return;
   playlistLoadGeneration += 1;
   state.selectedBrowserPath = selectedBrowserPath;
-  state.playlist = [...state.playlist, ...uniqueAdditions].map((track, index) => ({ ...track, index: index + 1 }));
+  state.playlist = [...state.playlist, ...uniqueAdditions];
   state.selectedTrackId = uniqueAdditions[0].id;
   state.lastSelectedTrackId = state.selectedTrackId;
   persistSettings();
@@ -868,7 +868,7 @@ function reportDatabaseSidebarError(action, error) {
 function databaseRowsToPlaylistTracks(rows, games) {
   const fallbackGame = games[0] || {};
   return rows.map((row, index) => ({
-    id: `${row.archivePath ? `${row.archivePath}#${row.archiveEntry}` : row.path}#${row.trackIndex || 0}`,
+    id: row.playlistId,
     index: index + 1,
     path: row.path,
     rootPath: row.rootPath || fallbackGame.rootPath || state.rootPath,
@@ -878,6 +878,10 @@ function databaseRowsToPlaylistTracks(rows, games) {
     specialAudioKind: row.specialAudioKind || null,
     archivePath: row.archivePath || null,
     archiveEntry: row.archiveEntry || null,
+    fileSize: Number(row.fileSize) || 0,
+    modifiedAt: Number(row.modifiedAt) || 0,
+    sourceSignature: row.sourceSignature || null,
+    scanVersion: Number(row.scanVersion) || 0,
     filename: `${row.filename}${Number(row.trackCount) > 1 ? ` [${Number(row.trackIndex) + 1}]` : ""}`,
     displayName: `${row.filename.replace(/\.[^.]+$/i, "")}${Number(row.trackCount) > 1 ? ` [${Number(row.trackIndex) + 1}]` : ""}`,
     title: row.title || row.filename.replace(/\.[^.]+$/i, ""),
@@ -886,7 +890,7 @@ function databaseRowsToPlaylistTracks(rows, games) {
     system: row.system || fallbackGame.system || "—",
     lengthLabel: row.playLengthMs > 0 ? uiApp.formatTime(Math.round(row.playLengthMs / 1000)) : "—",
     basePlaybackSeconds: row.playLengthMs > 0 ? row.playLengthMs / 1000 : 0,
-    metadataLoaded: Number(row.playLengthMs) > 0
+    metadataLoaded: Number(row.metadataTrackId) > 0
   }));
 }
 
@@ -1014,12 +1018,7 @@ function playlistSortValue(track, column) {
   if (column.id === "lengthLabel") {
     return Number(track.basePlaybackSeconds) || 0;
   }
-  const value = playlistColumnValue(track, column);
-  if (column.id === "index") {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : 0;
-  }
-  return String(value).toLocaleLowerCase();
+  return String(playlistColumnValue(track, column)).toLocaleLowerCase();
 }
 
 function playlistDisplayPath(track) {
@@ -1041,7 +1040,8 @@ function playlistDisplayPath(track) {
   return sourcePath;
 }
 
-function playlistColumnValue(track, column) {
+function playlistColumnValue(track, column, rowIndex = null) {
+  if (column.id === "index") return rowIndex === null ? "" : rowIndex + 1;
   return column.id === "path" ? playlistDisplayPath(track) : (track[column.id] ?? "");
 }
 
@@ -1128,7 +1128,7 @@ function columnContentWidth(columnId) {
   const styleSource = header?.querySelector(".playlist-header-label") || header || refs.playlistBody;
   const style = getComputedStyle(styleSource);
   textMeasureContext.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  const values = [column.label, ...state.playlist.map((track) => String(playlistColumnValue(track, column)))];
+  const values = [column.label, ...state.playlist.map((track, rowIndex) => String(playlistColumnValue(track, column, rowIndex)))];
   return Math.max(...values.map((value) => textMeasureContext.measureText(value).width), 0) + 24;
 }
 
@@ -1181,7 +1181,7 @@ function renderPlaylistHeader() {
     th.draggable = true;
     th.className = column.className || "";
     th.style.width = `${state.columnWidths[column.id]}%`;
-    th.title = `Sort by ${column.label}`;
+    th.title = column.sortable === false ? "Line number" : `Sort by ${column.label}`;
 
     const label = document.createElement("span");
     label.className = "playlist-header-label";
@@ -1201,7 +1201,7 @@ function renderPlaylistHeader() {
     });
     th.appendChild(resizeHandle);
 
-    th.addEventListener("click", (event) => {
+    if (column.sortable !== false) th.addEventListener("click", (event) => {
       if (event.target === resizeHandle) return;
       if (state.sortColumn === column.id) {
         state.sortDirection = state.sortDirection === "ascending" ? "descending" : "ascending";
@@ -1272,19 +1272,19 @@ function renderPlaylistHeader() {
   }
 }
 
-function renderPlaylistCell(track, column) {
+function renderPlaylistCell(track, column, rowIndex) {
   const td = document.createElement("td");
   td.className = column.className || "";
   td.dataset.columnId = column.id;
   td.style.width = `${state.columnWidths[column.id]}%`;
-  td.textContent = String(playlistColumnValue(track, column));
+  td.textContent = String(playlistColumnValue(track, column, rowIndex));
   return td;
 }
 
 function playlistAutoSizeSignature() {
   const columns = orderedColumns();
   return columns.map((column) => column.id).join("\u0001") + "\u0002" + state.playlist
-    .map((track) => columns.map((column) => String(playlistColumnValue(track, column))).join("\u0001"))
+    .map((track, rowIndex) => columns.map((column) => String(playlistColumnValue(track, column, rowIndex))).join("\u0001"))
     .join("\u0002");
 }
 
@@ -1328,6 +1328,7 @@ function refreshPlaylistPlaybackState() {
 
 function refreshPlaylistRow(trackId) {
   const track = state.playlist.find((entry) => entry.id === trackId);
+  const rowIndex = state.playlist.findIndex((entry) => entry.id === trackId);
   const row = playlistRowsByTrackId.get(trackId);
   if (!track || !row) return false;
 
@@ -1335,7 +1336,7 @@ function refreshPlaylistRow(trackId) {
   for (const column of orderedColumns()) {
     const cell = row.querySelector(`[data-column-id="${CSS.escape(column.id)}"]`);
     if (!cell) return false;
-    cell.textContent = String(playlistColumnValue(track, column));
+    cell.textContent = String(playlistColumnValue(track, column, rowIndex));
     cell.style.width = `${state.columnWidths[column.id]}%`;
   }
   updatePlaylistRowState(row, trackId);
@@ -1373,7 +1374,7 @@ function renderPlaylist() {
   }
 
   const fragment = document.createDocumentFragment();
-  for (const track of state.playlist) {
+  for (const [rowIndex, track] of state.playlist.entries()) {
     const row = document.createElement("tr");
     row.dataset.trackId = track.id;
     row.tabIndex = 0;
@@ -1384,7 +1385,7 @@ function renderPlaylist() {
     if (state.currentTrackId === track.id) currentPlaylistRow = row;
 
     for (const column of orderedColumns()) {
-      row.appendChild(renderPlaylistCell(track, column));
+      row.appendChild(renderPlaylistCell(track, column, rowIndex));
     }
 
     row.addEventListener("click", () => {
@@ -1496,14 +1497,28 @@ function applyLibraryProgress(progress) {
   const jobId = Number(progress.jobId || 0);
   if (jobId && (!state.libraryOperationActive || (state.libraryOperationId && state.libraryOperationId !== jobId))) return;
   const progressPath = String(progress.path || "");
-  const operation = progress.operation === "trim" ? "Checking files" : progress.operation === "prepare" ? "Preparing scan" : progress.operation === "discover" ? "Discovering files" : progress.operation === "stream" && progress.stage === "archiveListing" ? "Listing archive" : "Scanning";
+  const phaseLabels = {
+    preparing: "Preparing scan",
+    discovery: "Discovering files",
+    planning: "Planning scan",
+    archiveListing: "Listing archives",
+    materialization: "Extracting archive",
+    inspection: "Inspecting metadata",
+    persistence: "Saving scan",
+    publication: "Publishing scan",
+    cleanup: "Cleaning up scan"
+  };
+  const operation = progress.operation === "trim"
+    ? "Checking files"
+    : phaseLabels[progress.phase]
+      || (progress.operation === "stream" && progress.stage === "archiveListing" ? "Listing archive" : "Scanning");
   // Discovery has no final source total yet, but it is still real work. Keep
   // the progress surface visible and use its indeterminate treatment until a
   // stable total is available.
   state.libraryScanProgress = progress;
-  const baseStatus = progress.operation === "prepare"
+  const baseStatus = progress.phase === "preparing" || progress.phase === "planning"
     ? `${operation}…`
-    : progress.operation === "discover"
+    : progress.phase === "discovery"
       ? `${operation} • ${progress.completed} found${Number(progress.estimatedTotal) > 0 ? ` of ~${progress.estimatedTotal} expected` : ""} • ${progress.visitedFolders || 0} folders`
     : progress.operation === "stream" && !progress.total
       ? operation
@@ -1523,8 +1538,7 @@ function applyLibraryProgress(progress) {
       refs.libraryScanStatusPanel.classList.remove("is-hidden");
       refs.libraryScanStatus.textContent = state.libraryScanStatus;
       refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
-      refs.libraryCancelButton.disabled = !state.libraryOperationActive;
-      refs.libraryCancelButton.classList.toggle("is-hidden", !state.libraryOperationActive);
+      refs.libraryCancelButton.disabled = !state.libraryOperationActive || state.libraryOperationCancelling;
       const progressState = state.libraryScanProgress;
       const total = Number(progressState?.total || 0);
       const estimatedTotal = Number(progressState?.estimatedTotal || 0);
@@ -1547,11 +1561,19 @@ function applyLibraryOperationState(operationState = {}) {
   const jobId = Number(operationState.jobId || 0);
   if (operationState.active) {
     state.libraryOperationActive = true;
+    state.libraryOperationCancelling = Boolean(operationState.cancelling);
     state.libraryOperationId = jobId;
     if (operationState.progress) applyLibraryProgress(operationState.progress);
+    if (operationState.cancelling) {
+      state.libraryScanStatus = "Cancelling…";
+      refs.libraryScanStatus.textContent = state.libraryScanStatus;
+      refs.libraryCancelButton.disabled = true;
+    }
+    renderAll();
   } else {
     if (jobId && state.libraryOperationId && jobId !== state.libraryOperationId) return;
     state.libraryOperationActive = false;
+    state.libraryOperationCancelling = false;
     state.libraryOperationId = jobId || state.libraryOperationId;
     state.libraryScanProgress = null;
     state.libraryScanCurrentFile = "";
@@ -1662,9 +1684,8 @@ function renderAll() {
   refs.repeatButton.setAttribute("aria-label", repeatTitles[state.repeatMode]);
   refs.libraryScanStatus.textContent = state.libraryScanStatus;
   refs.libraryScanCurrentFile.textContent = state.libraryScanCurrentFile;
-  refs.libraryScanStatusPanel.classList.toggle("is-hidden", state.libraryScanStatus === "No scan started.");
-  refs.libraryCancelButton.disabled = !state.libraryOperationActive;
-  refs.libraryCancelButton.classList.toggle("is-hidden", !state.libraryOperationActive);
+  refs.libraryScanStatusPanel.classList.toggle("is-hidden", !state.libraryOperationActive && state.libraryScanStatus === "No scan started.");
+  refs.libraryCancelButton.disabled = !state.libraryOperationActive || state.libraryOperationCancelling;
   refs.libraryAddRootButton.disabled = state.libraryOperationActive;
   refs.libraryToggleRootsButton.disabled = state.libraryOperationActive;
   refs.libraryScanAllButton.disabled = state.libraryOperationActive;
@@ -1806,7 +1827,11 @@ async function hydratePlaylistMetadata() {
       archivePath: track.archivePath,
       archiveEntry: track.archiveEntry,
       sourceFilename: track.sourceFilename,
-      trackIndex: track.trackIndex
+      trackIndex: track.trackIndex,
+      fileSize: track.fileSize,
+      modifiedAt: track.modifiedAt,
+      sourceSignature: track.sourceSignature,
+      scanVersion: track.scanVersion
     }))).then((updates) => {
       if (metadataToken !== state.metadataToken) return;
       for (const update of updates || []) {
@@ -1837,7 +1862,19 @@ async function hydrateTrackMetadata(trackId, inspectionPath = null, sourceName =
   if (!track || track.metadataLoaded) return track;
 
   try {
-    const inspection = await window.spcBoy.inspectTrack(inspectionPath || track.path, sourceName || track.sourceFilename || track.filename);
+    const hydrateLoose = window.spcBoy.hydrateLooseMetadata
+      ? (payload) => window.spcBoy.hydrateLooseMetadata(payload)
+      : (payload) => window.spcBoy.inspectTrack(payload.inspectionPath, payload.sourceFilename);
+    const inspection = await hydrateLoose({
+      path: track.path,
+      trackIndex: track.trackIndex,
+      sourceFilename: sourceName || track.sourceFilename || track.filename,
+      inspectionPath: inspectionPath || track.path,
+      fileSize: track.fileSize,
+      modifiedAt: track.modifiedAt,
+      sourceSignature: track.sourceSignature,
+      scanVersion: track.scanVersion
+    });
     const target = state.playlist.find((entry) => entry.id === trackId);
     if (!target) return null;
     return applyTrackInspection(target, inspection);

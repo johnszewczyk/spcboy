@@ -273,8 +273,10 @@ async function fastSourceSignature(sourcePath, knownStat = null) {
     };
     const sampleSize = 64 * 1024;
     const fullHashThreshold = 1024 * 1024;
-    const hash = crypto.createHash("sha256")
-      .update(`spcboy-source-v2\0${stat.size}\0${stat.mtimeMs}\0${stat.ctimeMs}\0${stat.dev}\0${stat.ino}\0`);
+    // Content identity is deliberately independent from stat identity. A
+    // timestamp-only copy can reuse inspected rows after the cheap stat gate
+    // misses, while size/mtime remain separately persisted guards.
+    const hash = crypto.createHash("sha256").update("spcboy-content-v1\0");
     if (stat.size <= fullHashThreshold) {
       const contents = await readAt(stat.size, 0);
       return hash.update(contents).digest("hex");

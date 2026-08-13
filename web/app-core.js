@@ -4,7 +4,7 @@ const STORAGE_KEY = "spcboy-electron-settings";
 const DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
 const ARCHIVE_CACHE_LIMIT_CHOICES = Object.freeze([512, 1024, 2048, 4096].map((megabytes) => megabytes * 1024 * 1024));
 const COLUMN_DEFS = [
-  { id: "index", label: "#", className: "mono col-index" },
+  { id: "index", label: "#", className: "mono col-index", sortable: false },
   { id: "filename", label: "File" },
   { id: "title", label: "Title" },
   { id: "game", label: "Game" },
@@ -96,6 +96,7 @@ const state = {
   libraryScanStatus: "No scan started.",
   libraryScanCurrentFile: "",
   libraryOperationActive: false,
+  libraryOperationCancelling: false,
   libraryOperationId: 0,
   libraryScanProgress: null,
   databaseMaintenanceSummary: null,
@@ -475,7 +476,7 @@ function normalizeColumnVisibility(value) {
 }
 
 function normalizeSortColumn(value) {
-  return DEFAULT_COLUMN_ORDER.includes(value) ? value : "filename";
+  return DEFAULT_COLUMN_ORDER.includes(value) && value !== "index" ? value : "filename";
 }
 
 function normalizeSortDirection(value) {

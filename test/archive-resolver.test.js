@@ -385,6 +385,36 @@ test("lists and materializes TZST and TAR.ZST members", async (t) => {
   }
 });
 
+test("materializes selected TAR.ZST tracks when non-audio members follow them", async (t) => {
+  const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-tzst-tail-fixture-"));
+  try {
+    const selectedEntries = ["01 Title.vgm", "02 Ending.vgm"];
+    for (const entry of selectedEntries) await fs.writeFile(path.join(fixtureRoot, entry), entry, "utf8");
+    await fs.writeFile(path.join(fixtureRoot, "cover.bin"), Buffer.alloc(1024 * 1024, 0x5a));
+    const rawTarPath = path.join(fixtureRoot, "fixture.tar");
+    const archivePath = path.join(fixtureRoot, "fixture.tar.zst");
+    try {
+      await execFileAsync(TAR_BINARY, ["-cf", rawTarPath, "-C", fixtureRoot, ...selectedEntries, "cover.bin"]);
+      await execFileAsync(ZSTD_BINARY, ["-q", "-f", rawTarPath, "-o", archivePath]);
+    } catch (error) {
+      if (error?.code === "ENOENT") return t.skip(`TAR/Zstandard fixture tools unavailable: ${error.message}`);
+      throw error;
+    }
+
+    const materialized = await materializeArchiveEntriesForScan(archivePath, selectedEntries);
+    try {
+      for (const entry of selectedEntries) {
+        assert.equal(await fs.readFile(materialized.paths.get(entry), "utf8"), entry);
+      }
+      await assert.rejects(fs.access(path.join(materialized.root, "cover.bin")));
+    } finally {
+      await materialized.cleanup();
+    }
+  } finally {
+    await fs.rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("reports and clears the managed durable archive cache", async (t) => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "spcboy-cache-summary-fixture-"));
   const previousCacheRoot = process.env.SPCBOY_ARCHIVE_CACHE_ROOT;

@@ -19,13 +19,16 @@ function indexIndexedTracks(rows) {
   return indexed;
 }
 
-function reusableRecordsForSource(source, stat, rows, scanVersion, backendId = null) {
+function reusableRecordsForSource(source, stat, rows, scanVersion, backendId = null, metadataRequired = true) {
   if (!rows?.length || rows.some((row) => Number(row.scanVersion) !== Number(scanVersion))) return null;
   if (rows.some((row) => !row.scanCompleted)) return null;
   if (rows.some((row) => (row.backendId || null) !== backendId)) return null;
-  if (rows.some((row) => !row.metadataTrackId)) return null;
-  if (rows.some((row) => Number(row.fileSize) !== Number(stat.size))) return null;
-  if (rows.some((row) => Math.abs(Number(row.modifiedAt) - Number(stat.mtimeMs / 1000)) > 0.001)) return null;
+  if (metadataRequired && rows.some((row) => !row.metadataTrackId)) return null;
+  const statMatches = rows.every((row) => Number(row.fileSize) === Number(stat.size)
+    && Math.abs(Number(row.modifiedAt) - Number(stat.mtimeMs / 1000)) <= 0.001);
+  const contentMatches = Boolean(source.sourceSignature)
+    && rows.every((row) => row.sourceSignature === source.sourceSignature);
+  if (!statMatches && !contentMatches) return null;
   if (source.archiveEntry && rows.some((row) => row.archiveSignature !== source.archiveSignature)) return null;
   if (rows.some((row) => row.sourceSignature !== source.sourceSignature)) return null;
 
@@ -42,8 +45,8 @@ function reusableRecordsForSource(source, stat, rows, scanVersion, backendId = n
     backendId: row.backendId || null,
     trackIndex: Number(row.trackIndex),
     trackCount: Number(row.trackCount) || 1,
-    fileSize: Number(row.fileSize) || 0,
-    modifiedAt: Number(row.modifiedAt) || 0,
+    fileSize: Number(stat.size) || 0,
+    modifiedAt: Number(stat.mtimeMs / 1000) || 0,
     scanCompleted: Boolean(row.scanCompleted),
     specialAudioKind: row.specialAudioKind || null,
     archivePath: row.archivePath || null,
@@ -51,17 +54,17 @@ function reusableRecordsForSource(source, stat, rows, scanVersion, backendId = n
     archiveSignature: row.archiveSignature || null,
     sourceSignature: row.sourceSignature || null,
     scanVersion: Number(row.scanVersion) || 0,
-    metadata: {
+    metadata: row.metadataTrackId ? {
       title: row.title || "",
       game: row.game || "",
       artist: row.artist || "",
       system: row.system || "",
       playLengthMs: Number(row.playLengthMs) || 0
-    }
+    } : null
   }));
 }
 
-function reusableRecordsForArchive(rows, archivePath, stat, sourceSignature, scanVersion, backendIdForEntry = () => null) {
+function reusableRecordsForArchive(rows, archivePath, stat, sourceSignature, scanVersion, backendIdForEntry = () => null, metadataRequiredForEntry = () => true) {
   if (!rows?.length || rows.some((row) => row.archivePath !== archivePath)) return null;
   const rowsByEntry = new Map();
   for (const row of rows) {
@@ -83,7 +86,7 @@ function reusableRecordsForArchive(rows, archivePath, stat, sourceSignature, sca
       archiveEntry,
       archiveSignature,
       sourceSignature
-    }, stat, entryRows, scanVersion, backendIdForEntry(archiveEntry));
+    }, stat, entryRows, scanVersion, backendIdForEntry(archiveEntry), metadataRequiredForEntry(archiveEntry));
     if (!records) return null;
     reusable.push(...records);
   }

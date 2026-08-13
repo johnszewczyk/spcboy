@@ -5,13 +5,17 @@
 - Library: opens as the default Options section. Library Paths, Scan Options, and Scan Status are equal top-level panels, using the same panel treatment as Playlist.
 - Roots: configured library paths are listed alphabetically with a single-line Add Folder, Select All, Scan Selected, and Test Files bar; each root has distinct Scan, scan-log, and Delete SVG icon controls.
 - Scan log: the root row shows one-line success/error counts; Log opens only errored file lines.
-- Test Files: checks each unique indexed loose-file or archive source path, then removes tracks whose source no longer exists without reopening archives or reading metadata.
-- Test Files: updates each affected root's displayed file and track counts after pruning missing sources, while leaving the root marked for attention.
-- Scan and Test Files: show live progress and expose Cancel while work is running; cancelling preserves the previously committed index.
+- Test Files: checks each unique indexed loose-file or archive source path without reopening archives or reading metadata. Confirmed-missing sources are marked unlinked and hidden, but their tracks and scan inventory are retained for rediscovery.
+- Test Files: updates each affected root's displayed active file and track counts after hiding missing sources, while leaving the root marked for attention. Only Clear Unlinked permanently removes the retained rows.
+- Scan and Test Files: show live phase progress and expose Cancel while work is
+  running. Cancelling remains visible until active subprocesses, scratch
+  cleanup, and database stage pause finish. The previously committed index stays
+  visible, and completed physical-source checkpoints resume on the next scan
+  with the same mode and scanner policy after validation.
 - Scan status: after the first library operation begins, a level-one status panel appears at the end of the Library page with a one-line summary, current path on its own line, an eased show/hide progress bar, and a full-width Cancel Scan button. The summary includes active scan-scratch roots and bytes plus startup recovery totals; completed scans retain the scratch peak.
 - Startup recovery: SPCBoy removes abandoned disposable scan-scratch roots before allowing a new scan and reports reclaimed roots and bytes. This never clears the playback archive cache.
 - Archive Cache: Options / Database shows its size and file count, offers a 512 MB–4 GB automatic LRU limit (2 GB by default), and can disable durable playback caching entirely. Cache-off playback materializations are deleted on Stop and abandoned playback scratch roots are recovered at launch; neither mode turns scanner scratch space into a cache.
-- Deep Scan: scans the selected library folders while bypassing unchanged-file and unchanged-archive reuse, updating existing records; ordinary Scan Selected retains complete reusable records.
+- Deep Scan: is a force-reinspect switch, not a metadata-depth mode. It scans the selected library folders while bypassing unchanged-file and unchanged-archive reuse; ordinary Scan Selected retains complete reusable records.
 - Per-root scanning: replaces the root's prior scan readout with a 100px progress bar and current/total count while that root is active.
 - Root health: a leading status dot starts the second row; green means the latest scan was clean and orange means errors or a pruned index need attention.
 

@@ -20,6 +20,7 @@ test("selecting a playable file builds its one-item playlist without listing sib
   assert.deepEqual(playlist.map((track) => ({ path: track.path, title: track.title, system: track.system })), [{
     path: "/music/set/song.spc", title: "song", system: "SNES"
   }]);
+  assert.equal(Object.hasOwn(playlist[0], "index"), false);
 });
 
 test("selecting an archive expands only that archive", async () => {
@@ -69,9 +70,9 @@ test("selecting a loose multi-track file expands every native child track", asyn
     sourceName: "/music/Nintendo Entertainment System/Game/game.nsf"
   }]);
   assert.deepEqual(playlist.map((track) => ({ id: track.id, title: track.title, trackIndex: track.trackIndex })), [
-    { id: "/music/Nintendo Entertainment System/Game/game.nsf#0", title: "Song 1", trackIndex: 0 },
-    { id: "/music/Nintendo Entertainment System/Game/game.nsf#1", title: "Song 2", trackIndex: 1 },
-    { id: "/music/Nintendo Entertainment System/Game/game.nsf#2", title: "Song 3", trackIndex: 2 }
+    { id: "pt1|f|50|/music/Nintendo Entertainment System/Game/game.nsf|0", title: "Song 1", trackIndex: 0 },
+    { id: "pt1|f|50|/music/Nintendo Entertainment System/Game/game.nsf|1", title: "Song 2", trackIndex: 1 },
+    { id: "pt1|f|50|/music/Nintendo Entertainment System/Game/game.nsf|2", title: "Song 3", trackIndex: 2 }
   ]);
 });
 
