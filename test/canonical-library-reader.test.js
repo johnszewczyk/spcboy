@@ -69,3 +69,16 @@ test("canonical reader rejects a noncanonical schema", async (t) => {
   t.after(() => reader.close());
   await assert.rejects(reader.initialize(), /expected 23/);
 });
+
+test("canonical reader validates a selected catalog without a scanner process", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "spcboy-reader-validation-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const databasePath = path.join(directory, "Library.sqlite");
+  createCanonicalFixture(databasePath);
+
+  assert.deepEqual(await CanonicalLibraryReader.validate(databasePath), {
+    path: databasePath,
+    trackCount: 1,
+    rootCount: 1
+  });
+});

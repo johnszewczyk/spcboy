@@ -25,6 +25,20 @@ function displayLibraryRootPath(rootPath) {
 }
 
 class CanonicalLibraryReader {
+  static async validate(databasePath) {
+    const reader = new CanonicalLibraryReader(databasePath);
+    try {
+      await reader.initialize();
+      return {
+        path: reader.databasePath,
+        trackCount: await reader.trackCount(),
+        rootCount: (await reader.loadRoots()).length
+      };
+    } finally {
+      await reader.close();
+    }
+  }
+
   constructor(databasePath, { ClientClass = SqliteWorkerClient } = {}) {
     if (!path.isAbsolute(String(databasePath || ""))) throw new Error("Canonical library database path must be absolute");
     this.databasePath = path.resolve(databasePath);

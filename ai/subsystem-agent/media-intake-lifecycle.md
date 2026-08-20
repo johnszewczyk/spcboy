@@ -11,8 +11,6 @@
 - The sibling MediaScanner package owns every catalog scan and write. SPCBoy
   contains no JavaScript catalog scanner, staging database, checkpoint writer,
   root mutation service, or host fallback.
-- `media-scanner-client.js` invokes the staged Swift executable only for its
-  versioned process contract, including catalog validation.
 - `media-source-discovery.js` discovers paths selected for the current playlist;
   it does not index a library.
 - `playlist-archive-discovery.js` and `archive-resolver.js` list/materialize
@@ -50,7 +48,6 @@
 
 ## Files
 
-- [media-scanner-client.js](/Users/john/Downloads/Code/SPCBoy/electron/media-scanner-client.js)
 - [media-source-discovery.js](/Users/john/Downloads/Code/SPCBoy/electron/media-source-discovery.js)
 - [playlist-archive-discovery.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-archive-discovery.js)
 - [playlist-track-inspector.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-track-inspector.js)

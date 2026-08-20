@@ -21,8 +21,8 @@
 
 - The default database is
   `~/Library/Application Support/CocoaSpice/Library.sqlite`.
-- Browse persists another absolute path only after the staged Swift
-  `media-scan catalog validate` command accepts schema 23 and required tables.
+- Browse persists another absolute path only after SPCBoy's query-only
+  canonical reader accepts schema 23 and required tables.
 - A changed location takes effect after restart. Reload Library replaces only the
   active reader after its replacement has passed schema validation; a staged
   different path still requires restart.

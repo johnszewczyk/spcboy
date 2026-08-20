@@ -5,4 +5,3 @@ DerivedData/
 *.xcodeproj
 .DS_Store
 node_modules/
-native/media-scan

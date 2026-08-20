@@ -29,14 +29,6 @@ if [[ ! -d "$ROOT_DIR/node_modules/electron" ]]; then
   npm install --prefix "$ROOT_DIR"
 fi
 
-if [[ "${SPCBOY_SKIP_MEDIA_SCANNER_BUILD:-0}" == "1" ]]; then
-  if [[ ! -x "$ROOT_DIR/native/media-scan" ]]; then
-    echo "SPCBOY_SKIP_MEDIA_SCANNER_BUILD=1 requires the staged native/media-scan executable."
-    exit 1
-  fi
-else
-  "$ROOT_DIR/scripts/build-media-scanner.sh"
-fi
 "$ROOT_DIR/scripts/build-lazyusf-helper.sh"
 "$ROOT_DIR/scripts/build-mgba-helper.sh"
 "$ROOT_DIR/scripts/build-libvgm-helper.sh"

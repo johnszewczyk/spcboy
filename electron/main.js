@@ -3,7 +3,6 @@ const fs = fsSync.promises;
 const path = require("path");
 const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, powerSaveBlocker, shell } = require("electron");
 const { CanonicalLibraryReader } = require("./canonical-library-reader");
-const { runMediaScanner } = require("./media-scanner-client");
 const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
 const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForInspection, isSupportedArchivePath, recoverAbandonedInspectionScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
 const { discoverPhysicalSources } = require("./media-source-discovery");
@@ -1045,9 +1044,7 @@ ipcMain.handle("library:database-location-choose", async () => {
   });
   const selectedPath = result.canceled ? null : result.filePaths[0];
   if (!selectedPath) return null;
-  const events = await runMediaScanner({ command: "catalog", args: ["validate", selectedPath] });
-  const validated = events.find((event) => event.kind === "catalogValidated")?.catalog;
-  if (!validated) throw new Error("MediaScanner did not validate the selected database.");
+  const validated = await CanonicalLibraryReader.validate(selectedPath);
   await saveLibraryDatabasePath(validated.path);
   return { ...libraryDatabaseLocation(), configuredPath: validated.path, requiresRestart: path.resolve(validated.path) !== path.resolve(libraryDatabase.databasePath), catalog: validated };
 });
