@@ -19,6 +19,8 @@ CPP_SOURCE_FILES=(
   "$ROOT_DIR/native/vgmstream_bridge.cpp"
   "$ROOT_DIR/native/play_psf_decoder.cpp"
   "$ROOT_DIR/native/play_psf_bridge.cpp"
+  "$ROOT_DIR/native/sidplay_decoder.cpp"
+  "$ROOT_DIR/native/sidplay_bridge.cpp"
 )
 OUTPUT_FILE="$ROOT_DIR/native/libgme-tool"
 SCRIPT_FILE="$ROOT_DIR/scripts/build-libgme-helper.sh"
@@ -50,7 +52,7 @@ if [[ -x "$OUTPUT_FILE" && "${SPCBOY_FORCE_NATIVE_REBUILD:-0}" != "1" ]]; then
     fi
   done
   if [[ -z "$dependency_change" ]]; then
-    newer_source=$(find "$SCRIPT_FILE" "$ROOT_DIR/native/libgme_tool.c" "$ROOT_DIR/native/native_decoder.h" "$ROOT_DIR/native/libvgm_decoder.h" "$ROOT_DIR/native/libvgm_decoder.cpp" "$ROOT_DIR/native/highlycomplete_bridge.h" "$ROOT_DIR/native/highlycomplete_bridge.cpp" "$ROOT_DIR/native/highlycomplete_decoder.h" "$ROOT_DIR/native/highlycomplete_decoder.cpp" "$ROOT_DIR/native/twosf_bridge.h" "$ROOT_DIR/native/twosf_bridge.cpp" "$ROOT_DIR/native/twosf_decoder.h" "$ROOT_DIR/native/twosf_decoder.cpp" "$ROOT_DIR/native/vgmstream_bridge.h" "$ROOT_DIR/native/vgmstream_bridge.cpp" "$ROOT_DIR/native/vgmstream_decoder.h" "$ROOT_DIR/native/vgmstream_decoder.cpp" "$ROOT_DIR/native/play_psf_bridge.h" "$ROOT_DIR/native/play_psf_bridge.cpp" "$ROOT_DIR/native/play_psf_decoder.h" "$ROOT_DIR/native/play_psf_decoder.cpp" "$ROOT_DIR/native/libvgm" "$ROOT_DIR/native/ring_buffer.c" "$ROOT_DIR/native/audio_engine.h" "$ROOT_DIR/native/audio_engine_macos.c" "$ROOT_DIR/native/lazyusf" "$ROOT_DIR/vendor/lazyusf2" "$ROOT_DIR/vendor/psflib" "$ROOT_DIR/vendor/libvgm" "$ROOT_DIR/vendor/mgba" "$ROOT_DIR/vendor/2sf2wav" "$ROOT_DIR/vendor/vgmstream" "$ROOT_DIR/vendor/play" -type f -newer "$OUTPUT_FILE" -print -quit 2>/dev/null || true)
+    newer_source=$(find "$SCRIPT_FILE" "$ROOT_DIR/native/libgme_tool.c" "$ROOT_DIR/native/native_decoder.h" "$ROOT_DIR/native/libvgm_decoder.h" "$ROOT_DIR/native/libvgm_decoder.cpp" "$ROOT_DIR/native/highlycomplete_bridge.h" "$ROOT_DIR/native/highlycomplete_bridge.cpp" "$ROOT_DIR/native/highlycomplete_decoder.h" "$ROOT_DIR/native/highlycomplete_decoder.cpp" "$ROOT_DIR/native/twosf_bridge.h" "$ROOT_DIR/native/twosf_bridge.cpp" "$ROOT_DIR/native/twosf_decoder.h" "$ROOT_DIR/native/twosf_decoder.cpp" "$ROOT_DIR/native/vgmstream_bridge.h" "$ROOT_DIR/native/vgmstream_bridge.cpp" "$ROOT_DIR/native/vgmstream_decoder.h" "$ROOT_DIR/native/vgmstream_decoder.cpp" "$ROOT_DIR/native/play_psf_bridge.h" "$ROOT_DIR/native/play_psf_bridge.cpp" "$ROOT_DIR/native/play_psf_decoder.h" "$ROOT_DIR/native/play_psf_decoder.cpp" "$ROOT_DIR/native/sidplay_bridge.h" "$ROOT_DIR/native/sidplay_bridge.cpp" "$ROOT_DIR/native/sidplay_decoder.h" "$ROOT_DIR/native/sidplay_decoder.cpp" "$ROOT_DIR/native/libvgm" "$ROOT_DIR/native/ring_buffer.c" "$ROOT_DIR/native/audio_engine.h" "$ROOT_DIR/native/audio_engine_macos.c" "$ROOT_DIR/native/lazyusf" "$ROOT_DIR/vendor/lazyusf2" "$ROOT_DIR/vendor/psflib" "$ROOT_DIR/vendor/libvgm" "$ROOT_DIR/vendor/mgba" "$ROOT_DIR/vendor/2sf2wav" "$ROOT_DIR/vendor/vgmstream" "$ROOT_DIR/vendor/play" -type f -newer "$OUTPUT_FILE" -print -quit 2>/dev/null || true)
     if [[ -z "$newer_source" ]]; then exit 0; fi
   fi
 fi
@@ -128,6 +130,7 @@ done
 COMMON_CXXFLAGS=(
   -O2 -Wall -Wextra -std=c++17
   -DM_CORE_GBA -DENABLE_VFS -DENABLE_DIRECTORIES
+  -I"$INCLUDE_DIR"
   -I"$LIBVGM_SOURCE_DIR"
   -I"$ROOT_DIR/native"
   -I"$MGBA_BUILD_DIR/include"
@@ -166,6 +169,7 @@ clang++ \
   -lmgba \
   -L"$LIB_DIR" \
   -lgme \
+  -lsidplayfp \
   -lz \
   -lm \
   -liconv \

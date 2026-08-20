@@ -10,9 +10,10 @@
 
 - The active UI state lives in the renderer `state` object in `web/app-core.js`.
 - Persisted settings are stored in browser `localStorage` under `spcboy-electron-settings`.
-- Persisted values include root path, selected folder, last selected track, timing settings, independent Sidebar/Playlist font size, color, and monospace settings, sidebar width, item spacing, Console View, console-tag source, underlying Folders/Database mode, and column order. Search temporarily overrides the visible mode without changing that stored underlying selection.
-- Play time is normalized to 30-second steps.
+- Persisted values include root path, selected folder, last selected track, timing settings, independent Sidebar/Playlist font size, color, and monospace settings, sidebar width, item spacing, console-tag source, underlying Folders/Database mode, collapsed console disclosure state, and column order. Search temporarily overrides the visible mode without changing that stored underlying selection.
+- Play time is rounded to whole seconds and clamped to the 30-900 second range; entered values hold as typed.
 - libgme and libvgm playback speeds persist as separate reduced `{ numerator, denominator }` rationals, not floating-point values. Their enable settings persist independently and are broadcast to the separate Options window before only a compatible active route is refreshed.
+- Long Play enabled, manual play time, and fade duration persist and are broadcast to the separate Options window so the main playback window refreshes the active route with the same timing settings.
 - Font size and sidebar width are clamped to safe UI ranges before storage.
 - `selectedTrackId` is the row selection target.
 - `currentTrackId` is the active playback row.

@@ -248,22 +248,23 @@ refs.accentColorInput.addEventListener("blur", (event) => {
   app.ui.setAccentColor(event.target.value);
 });
 
-refs.consoleViewCheckbox.addEventListener("change", (event) => {
-  app.ui.setConsoleViewEnabled(event.target.checked);
-});
-
-
-if (window.spcBoy?.onConsoleViewChanged) {
-  window.spcBoy.onConsoleViewChanged((enabled) => {
-    app.ui.setConsoleViewEnabled(enabled, false);
-  });
-}
-
 if (window.spcBoy?.onPlaybackSettingsChanged) {
   window.spcBoy.onPlaybackSettingsChanged((settings) => {
     if (typeof settings.longPlayEnabled === "boolean") {
       state.longPlayEnabled = settings.longPlayEnabled;
       app.playback.refreshPlaybackForTimingChange().catch((error) => console.error(error));
+    }
+    if (settings.manualPlayTimeSeconds !== undefined) {
+      state.manualPlayTimeSeconds = app.normalizePlayTime(settings.manualPlayTimeSeconds);
+      app.persistSettings();
+      app.playback.refreshPlaybackForTimingChange().catch((error) => console.error(error));
+      app.ui.renderAll();
+    }
+    if (settings.spcFadeSeconds !== undefined) {
+      state.spcFadeSeconds = app.normalizeFadeTime(settings.spcFadeSeconds);
+      app.persistSettings();
+      app.playback.refreshPlaybackForTimingChange().catch((error) => console.error(error));
+      app.ui.renderAll();
     }
     if (typeof settings.queuedSkipsEnabled === "boolean") {
       state.queuedSkipsEnabled = settings.queuedSkipsEnabled;
@@ -321,6 +322,12 @@ if (window.spcBoy?.onRoutingPreferencesChanged) {
   });
 }
 
+if (window.spcBoy?.onCatalogReloaded) {
+  window.spcBoy.onCatalogReloaded((location) => {
+    app.ui.handleCatalogReloaded(location).catch((error) => console.error("[SPCBoy] catalog reload refresh failed", error));
+  });
+}
+
 refs.optionsCloseButton.addEventListener("click", () => {
   app.ui.setOptionsOpen(false);
 });
@@ -330,17 +337,18 @@ refs.optionsThemeTab.addEventListener("click", () => {
   app.ui.renderAll();
 });
 
-refs.optionsLibraryTab.addEventListener("click", () => {
-  state.optionsSection = "library";
-  app.ui.refreshLibraryRoots().catch((error) => console.error(error));
+refs.optionsDatabaseTab.addEventListener("click", () => {
+  state.optionsSection = "database";
+  app.ui.refreshDatabaseLocation().catch((error) => console.error(error));
+  app.ui.refreshArchiveCacheSummary().catch((error) => console.error(error));
   app.ui.renderAll();
 });
 
-refs.optionsDatabaseTab.addEventListener("click", () => {
-  state.optionsSection = "database";
-  app.ui.refreshDatabaseMaintenanceSummary().catch((error) => console.error(error));
-  app.ui.refreshDatabaseLocation().catch((error) => console.error(error));
-  app.ui.renderAll();
+refs.libraryDatabaseReloadButton.addEventListener("click", () => {
+  app.ui.reloadDatabaseLibrary().catch((error) => {
+    state.databaseLocationStatus = `Library reload failed • ${error.message}`;
+    app.ui.renderAll();
+  });
 });
 
 refs.libraryDatabaseBrowseButton.addEventListener("click", () => {
@@ -435,7 +443,6 @@ refs.sidebarSearchInput.addEventListener("input", (event) => {
 refs.sidebarViewToggleButton.addEventListener("click", () => {
   state.sidebarMode = state.sidebarMode === "database" ? "folders" : "database";
   if (state.sidebarMode === "folders") state.selectedDatabaseGameKey = null;
-  else state.consoleViewEnabled = true;
   app.persistSettings();
   if (state.sidebarMode === "folders" || state.databaseGames.length || state.sidebarQuery.trim()) {
     app.ui.updateSidebarSearch(state.sidebarQuery);

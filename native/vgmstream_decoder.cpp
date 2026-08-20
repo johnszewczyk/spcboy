@@ -21,11 +21,24 @@ void destroy(NativeDecoder* decoder) {
 }
 
 int configure(NativeDecoder* decoder, int play_ms, int fade_ms) {
-  (void)play_ms;
   (void)fade_ms;
   auto* vgm = reinterpret_cast<VgmstreamDecoder*>(decoder);
   char* error = nullptr;
-  const int result = vgmstream_player_configure(vgm->player, false, &error);
+  vgmstream_metadata_t metadata{};
+  if (vgmstream_player_read_metadata(vgm->player, &metadata, &error) != 0) {
+    printError(error);
+    return 1;
+  }
+  const int64_t natural_ms = metadata.sample_rate > 0 && metadata.play_length_frames > 0
+    ? (metadata.play_length_frames * 1000) / metadata.sample_rate
+    : 0;
+  vgmstream_metadata_clear(&metadata);
+  // Long Play: loop the natural stream to reach a requested duration that
+  // exceeds it (or an unbounded duration when no cap is supplied). A missing
+  // natural length also loops so the requested manual duration remains honored;
+  // the shell stops the stream at its (play_ms + fade_ms) frame cap.
+  const bool long_play = play_ms <= 0 || natural_ms <= 0 || play_ms > natural_ms;
+  const int result = vgmstream_player_configure(vgm->player, long_play, &error);
   if (result != 0) printError(error);
   return result;
 }

@@ -32,15 +32,12 @@ const state = {
   rootPath: null,
   tree: [],
   sidebarQuery: "",
-  folderSearchEntries: null,
-  folderSearchGeneration: 0,
   sidebarMode: "folders",
-  consoleViewEnabled: true,
   databaseGames: [],
   databaseSearchGames: null,
   databaseSearchGeneration: 0,
   databaseSidebarError: "",
-  folderSidebarError: "",
+  collapsedConsoleNames: [],
   selectedDatabaseGameKey: null,
   selectedDatabaseConsoleName: null,
   selectedFolderPath: null,
@@ -89,9 +86,9 @@ const state = {
   sortColumn: "filename",
   sortDirection: "ascending",
   optionsOpen: false,
-  optionsSection: "library",
+  optionsSection: "database",
   libraryRoots: [],
-  databaseMaintenanceSummary: null,
+  archiveCacheSummary: null,
   databaseLocation: null,
   databaseLocationStatus: "",
   metadataToken: 0,
@@ -133,13 +130,11 @@ const refs = {
   playlistBody: document.getElementById("playlist-body"),
   optionsOverlay: document.getElementById("options-overlay"),
   optionsCloseButton: document.getElementById("options-close-button"),
-  optionsLibraryTab: document.getElementById("options-library-tab"),
   optionsDatabaseTab: document.getElementById("options-database-tab"),
   optionsRoutingTab: document.getElementById("options-routing-tab"),
   optionsPlaybackTab: document.getElementById("options-playback-tab"),
   optionsThemeTab: document.getElementById("options-theme-tab"),
   optionsThemeSection: document.getElementById("options-theme-section"),
-  optionsLibrarySection: document.getElementById("options-library-section"),
   optionsDatabaseSection: document.getElementById("options-database-section"),
   optionsRoutingSection: document.getElementById("options-routing-section"),
   optionsPlaybackSection: document.getElementById("options-playback-section"),
@@ -147,15 +142,12 @@ const refs = {
   libraryClearCacheButton: document.getElementById("library-clear-cache-button"),
   archiveCacheEnabledCheckbox: document.getElementById("archive-cache-enabled-checkbox"),
   archiveCacheLimitSelect: document.getElementById("archive-cache-limit-select"),
-  libraryRootList: document.getElementById("library-root-list"),
-  databaseIndexedTrackCount: document.getElementById("database-indexed-track-count"),
-  databaseUnlinkedSourceCount: document.getElementById("database-unlinked-source-count"),
-  databaseUnlinkedTrackCount: document.getElementById("database-unlinked-track-count"),
   databaseCacheSummary: document.getElementById("database-cache-summary"),
   libraryDatabasePath: document.getElementById("library-database-path"),
   libraryDatabaseLocationStatus: document.getElementById("library-database-location-status"),
   libraryDatabaseBrowseButton: document.getElementById("library-database-browse-button"),
   libraryDatabaseDefaultButton: document.getElementById("library-database-default-button"),
+  libraryDatabaseReloadButton: document.getElementById("library-database-reload-button"),
   sidebarFontSizeInput: document.getElementById("sidebar-font-size-input"),
   sidebarTextColorInput: document.getElementById("sidebar-text-color-input"),
   sidebarMonospaceCheckbox: document.getElementById("sidebar-monospace-checkbox"),
@@ -168,7 +160,6 @@ const refs = {
   columnAutoSizeCheckbox: document.getElementById("column-auto-size-checkbox"),
   sidebarWidthInput: document.getElementById("sidebar-width-input"),
   accentColorInput: document.getElementById("accent-color-input"),
-  consoleViewCheckbox: document.getElementById("console-view-checkbox"),
   uiItemSpacingInput: document.getElementById("ui-item-spacing-input"),
   spcForceLengthCheckbox: document.getElementById("spc-force-length-checkbox"),
   queuedSkipsCheckbox: document.getElementById("queued-skips-checkbox"),
@@ -234,8 +225,10 @@ function loadSettings() {
     state.selectedFolderPath = parsed.selectedFolderPath || null;
     state.selectedBrowserPath = parsed.selectedBrowserPath || state.selectedFolderPath;
     state.sidebarMode = parsed.sidebarMode === "database" ? "database" : "folders";
-    state.consoleViewEnabled = Boolean(parsed.consoleViewEnabled);
     state.selectedDatabaseGameKey = parsed.selectedDatabaseGameKey || null;
+    state.collapsedConsoleNames = Array.isArray(parsed.collapsedConsoleNames)
+      ? parsed.collapsedConsoleNames.filter((name) => typeof name === "string")
+      : [];
     state.lastSelectedTrackId = parsed.lastSelectedTrackId || null;
     state.uiFontSizePt = normalizeFontSize(parsed.uiFontSizePt);
     state.sidebarFontSizePt = normalizeFontSize(parsed.sidebarFontSizePt ?? parsed.uiFontSizePt);
@@ -283,8 +276,8 @@ function persistSettings() {
     selectedFolderPath: state.selectedFolderPath,
     selectedBrowserPath: state.selectedBrowserPath,
     sidebarMode: state.sidebarMode,
-    consoleViewEnabled: state.consoleViewEnabled,
     selectedDatabaseGameKey: state.selectedDatabaseGameKey,
+    collapsedConsoleNames: state.collapsedConsoleNames,
     lastSelectedTrackId: state.lastSelectedTrackId,
     uiFontSizePt: state.uiFontSizePt,
     sidebarFontSizePt: state.sidebarFontSizePt,
@@ -320,7 +313,7 @@ function formatTime(totalSeconds) {
 function normalizePlayTime(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric)
-    ? Math.max(30, Math.min(900, Math.round(numeric / 30) * 30))
+    ? Math.max(30, Math.min(900, Math.round(numeric)))
     : 150;
 }
 

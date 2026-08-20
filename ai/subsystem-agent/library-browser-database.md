@@ -14,7 +14,7 @@
 - `sqlite-worker.js` opens query-only lanes with SQLite's OS-level `readOnly`
   option and also applies `PRAGMA query_only=ON`.
 - `main.js` owns database-location persistence, native Browse, schema validation,
-  restart-required state, and guarded read IPC.
+  safe reader reload, restart-required state, and guarded read IPC.
 - The renderer owns presentation only; no preload API exposes catalog mutation.
 
 ## Invariants
@@ -23,7 +23,11 @@
   `~/Library/Application Support/CocoaSpice/Library.sqlite`.
 - Browse persists another absolute path only after the staged Swift
   `media-scan catalog validate` command accepts schema 23 and required tables.
-- A changed location takes effect after restart; a live worker is never swapped.
+- A changed location takes effect after restart. Reload Library replaces only the
+  active reader after its replacement has passed schema validation; a staged
+  different path still requires restart.
+- Reloading preserves queued/playback files and swaps query-only catalog access
+  only, then notifies both the main and Options renderers to refresh their view.
 - SPCBoy never creates directories for, initializes, migrates, scans into,
   clears, repairs, or writes playlist metadata to the shared catalog.
 - The catalog must be a self-contained rollback-journal database. MediaScanner

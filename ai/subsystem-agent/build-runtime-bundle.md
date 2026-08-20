@@ -20,7 +20,7 @@
 - `native/libvgm-tool` is a renderer-owned PCM helper; `native/lazyusf-tool` remains the metadata/raw-decoder utility while `native/libgme-tool` owns native libgme and lazyusf2 transport playback.
 - OpenMPT and standard audio renderer-PCM paths use the launch-environment commands `openmpt123`, `ffprobe`, and `ffmpeg`; `SPCBOY_OPENMPT123`, `SPCBOY_FFPROBE`, and `SPCBOY_FFMPEG` override their command names.
 - `./launch.sh` is the local launcher.
-- `scripts/build-media-scanner.sh` builds the sibling `MediaScanner` Swift package and stages its `media-scan` executable under `native/`. The shared package owns catalog creation, scanning, resumable staging, atomic publication, archive/metadata adapters, and validation. Options invokes `media-scan catalog validate` before persisting a path; SPCBoy opens the validated catalog read-only.
+- `scripts/build-media-scanner.sh` builds the sibling `MediaScanner` Swift package and stages its `media-scan` executable under `native/`. The shared package owns catalog creation, scanning, resumable staging, atomic publication, archive/metadata adapters, and validation. Options invokes `media-scan catalog validate` before persisting a path; SPCBoy opens the validated catalog read-only. `SPCBOY_SKIP_MEDIA_SCANNER_BUILD=1` is valid only when that staged executable already exists; it keeps an SPCBoy-only build from invoking the separate MediaScanner project.
 - The launch script validates `package.json`, honors `SPCBOY_LIBRARY_ROOT` when set, installs Electron dependencies if missing, incrementally builds the native helper graph, then builds `dist/SPCBoy.app` from Electron's macOS bundle.
 - The built application contains the active `electron/`, `web/`, and `native/` runtime trees beneath `Contents/Resources/app`; it is not a loose renderer staging directory.
 - Before replacing the generated app, launch stops only a runtime whose command line names the old loose bundle or the generated SPCBoy app path. It refuses to replace a runtime still in use, preventing partial asset replacement.
@@ -33,6 +33,7 @@
 - The libgme helper is created lazily on the first metadata/native-playback request; raw folder browsing does not start it.
 - `npm run check` syntax-checks the active JS entry points.
 - Native helper scripts compare their output against the build script and vendored source tree, so unchanged mGBA, 2SF, vgmstream, Play!, libvgm, and lazyusf dependencies are skipped. The final `libgme-tool` link also checks the dependency archives it consumes. Set `SPCBOY_FORCE_NATIVE_REBUILD=1` to force every native helper to rebuild.
+- `patches/play-psfcore-only.patch` and `patches/vgmstream-system-ffmpeg.patch` are the tracked, minimal build adaptations applied by their focused helper scripts. They avoid an unrecorded fork while keeping a clean checkout capable of building the same static PSF core and system-FFmpeg vgmstream archive.
 - The repository is GPLv3, while incorporated and invoked third-party software retains its own license terms. `THIRD_PARTY_LICENSES.md` is the source-and-notice inventory; the README provides a short public source map.
 
 ## Critical Engineering Notes
@@ -54,6 +55,10 @@
 - [scripts/build-2sf-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-2sf-helper.sh)
 - [scripts/build-vgmstream-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-vgmstream-helper.sh)
 - [scripts/build-play-psf-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-play-psf-helper.sh)
+- [native/sidplay_bridge.cpp](/Users/john/Downloads/Code/SPCBoy/native/sidplay_bridge.cpp)
+- [native/sidplay_bridge.h](/Users/john/Downloads/Code/SPCBoy/native/sidplay_bridge.h)
+- [native/sidplay_decoder.cpp](/Users/john/Downloads/Code/SPCBoy/native/sidplay_decoder.cpp)
+- [native/sidplay_decoder.h](/Users/john/Downloads/Code/SPCBoy/native/sidplay_decoder.h)
 - [electron/main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [electron/native-audio-tools.js](/Users/john/Downloads/Code/SPCBoy/electron/native-audio-tools.js)
 - [electron/native-helper-client.js](/Users/john/Downloads/Code/SPCBoy/electron/native-helper-client.js)

@@ -18,6 +18,56 @@ const UNAR_BINARY = process.env.SPCBOY_UNAR_BINARY || "/opt/homebrew/bin/unar";
 const ARCHIVE_LIST_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const ARCHIVE_LIST_MAX_ENTRIES = 250_000;
 const ARCHIVE_ENTRY_MAX_NAME_BYTES = 32 * 1024;
+const MAX_DECOMPRESSED_TARS = 2;
+
+// Session-scoped reuse of decompressed tar.zst streams so every member of an
+// archive shares one decompression instead of restarting zstd per extraction.
+const decompressedTarCache = new Map();
+
+async function acquireRawTar(archivePath, options = {}) {
+  const stat = await fs.stat(archivePath);
+  const key = `${archivePath}\0${stat.size}\0${stat.mtimeMs}`;
+  const cached = decompressedTarCache.get(archivePath);
+  if (cached && cached.key === key) {
+    const stillValid = await fs.access(cached.rawTarPath).then(() => true).catch(() => false);
+    if (stillValid) {
+      cached.lastUsedMs = Date.now();
+      return { rawTarPath: cached.rawTarPath };
+    }
+    await fs.rm(cached.temporaryRoot, { recursive: true, force: true });
+    decompressedTarCache.delete(archivePath);
+  }
+  const decompressed = await decompressTarZstandard(archivePath, null, options);
+  const latest = decompressedTarCache.get(archivePath);
+  if (latest && latest.key === key) {
+    await fs.rm(decompressed.temporaryRoot, { recursive: true, force: true });
+    latest.lastUsedMs = Date.now();
+    return { rawTarPath: latest.rawTarPath };
+  }
+  decompressedTarCache.set(archivePath, {
+    key,
+    rawTarPath: decompressed.rawTarPath,
+    temporaryRoot: decompressed.temporaryRoot,
+    lastUsedMs: Date.now()
+  });
+  if (decompressedTarCache.size > MAX_DECOMPRESSED_TARS) {
+    let oldestKey = null;
+    let oldestUsed = Infinity;
+    for (const [candidateKey, entry] of decompressedTarCache) {
+      if (entry.lastUsedMs < oldestUsed) {
+        oldestUsed = entry.lastUsedMs;
+        oldestKey = candidateKey;
+      }
+    }
+    if (oldestKey && oldestKey !== archivePath) {
+      const evicted = decompressedTarCache.get(oldestKey);
+      await fs.rm(evicted.temporaryRoot, { recursive: true, force: true });
+      decompressedTarCache.delete(oldestKey);
+    }
+  }
+  return { rawTarPath: decompressed.rawTarPath };
+}
+
 function cacheRootPath() {
   return process.env.SPCBOY_ARCHIVE_CACHE_ROOT
     || path.join(os.tmpdir(), "SPCBoy", "ArchiveCache");
@@ -616,12 +666,8 @@ async function streamArchiveEntryToFile(archivePath, entry, outputPath, rawTarPa
 
   if (type === "tzst") {
     if (rawTarPath) return streamCommandToFile(TAR_BINARY, ["-xOf", rawTarPath, escapeArchivePattern(entry)], outputPath, "bsdtar", options);
-    const decompressed = await decompressTarZstandard(archivePath, null, options);
-    try {
-      return await streamArchiveEntryToFile(archivePath, entry, outputPath, decompressed.rawTarPath, options);
-    } finally {
-      await fs.rm(decompressed.temporaryRoot, { recursive: true, force: true });
-    }
+    const { rawTarPath: sharedRawTar } = await acquireRawTar(archivePath, options);
+    return streamCommandToFile(TAR_BINARY, ["-xOf", sharedRawTar, escapeArchivePattern(entry)], outputPath, "bsdtar", options);
   }
 
   // 7zz treats the entry as an exact archive member.
@@ -821,6 +867,13 @@ async function materializeDependencySetEntryIntoRoot(archivePath, selectedEntry,
   const entries = (await listArchiveEntries(archivePath, options)).filter((entry) => (
     (dependencyKind === "vgmstream" ? VGMSTREAM_COMPANION_EXTENSIONS : dependencyKind === "psf" ? PSF1_ARCHIVE_EXTENSIONS : dependencyKind === "psf2" ? PSF2_ARCHIVE_EXTENSIONS : DEPENDENCY_ARCHIVE_EXTENSIONS).has(path.extname(entry).toLowerCase())
   ));
+  // A tar.zst is a single compressed stream. Share one decompressed TAR for
+  // every member instead of restarting zstd (and charging the whole archive
+  // against the cache quota) on each extraction.
+  let rawTarPath = null;
+  if (archiveType(archivePath) === "tzst") {
+    ({ rawTarPath } = await acquireRawTar(archivePath, options));
+  }
   for (const entry of entries) {
     const destination = path.join(outputRoot, entry.split("/").join(path.sep));
     if (!destination.startsWith(`${outputRoot}${path.sep}`)) continue;
@@ -831,7 +884,7 @@ async function materializeDependencySetEntryIntoRoot(archivePath, selectedEntry,
     await fs.mkdir(path.dirname(destination), { recursive: true });
     const tempPath = `${destination}.tmp-${process.pid}-${crypto.randomUUID()}`;
     try {
-      await streamArchiveEntryToFile(archivePath, entry, tempPath, null, options);
+      await streamArchiveEntryToFile(archivePath, entry, tempPath, rawTarPath, options);
       await fs.rename(tempPath, destination);
     } finally {
       await fs.rm(tempPath, { force: true });

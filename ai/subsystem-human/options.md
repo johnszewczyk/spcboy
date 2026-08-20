@@ -1,16 +1,11 @@
 # Options
 
-## Library
-
-- Library is a read-only catalog status page. It lists roots and stored scan health supplied by the shared canonical database.
-- Roots and scanner controls are read-only in SPCBoy. Add, enable, delete, Scan Selected, Deep Scan, Test Files, Clear Unlinked, and Clear Database are disabled; MediaScanner is the catalog writer.
-- Scan Log displays diagnostics already stored with a catalog root. SPCBoy does not start or contain a JavaScript catalog scanner.
-- Archive Cache: Options / Database shows its size and file count, offers a 512 MB–4 GB automatic LRU limit (2 GB by default), and can disable durable playback caching entirely. Cache-off playback materializations are deleted on Stop and abandoned playback scratch roots are recovered at launch; MediaScanner scratch is separate.
-
 ## Database
 
-- Library Database displays the configured canonical `Library.sqlite` path. Browse uses the native file picker and MediaScanner schema validation; Use Default selects CocoaSpice's Application Support catalog. A changed location applies after restart.
-- The active catalog is opened through an OS-level read-only SQLite handle with query-only mode. Indexed/unlinked statistics remain readable, while destructive maintenance is unavailable in SPCBoy.
+- The Database page displays the configured canonical `Library.sqlite` path. Browse uses the native file picker and MediaScanner schema validation; Use Default selects CocoaSpice's Application Support catalog. A changed location applies after restart.
+- Reload Library safely replaces the active query-only reader for the current catalog, making MediaScanner's latest completed scan visible without restarting SPCBoy. It is unavailable while a different catalog path is staged for restart.
+- The active catalog is opened through an OS-level read-only SQLite handle with query-only mode. Roots, scanning, diagnostics, link checks, cleanup, and all catalog mutation remain MediaScanner-only.
+- Archive Cache shows its size and file count, offers a 512 MB–4 GB automatic LRU limit (2 GB by default), and can disable durable playback caching entirely. Cache-off playback materializations are deleted on Stop and abandoned playback scratch roots are recovered at launch; MediaScanner scratch is separate.
 
 ## Playback
 
@@ -33,18 +28,15 @@
 
 ## Theme
 
-- Theme: combines the former Sidebar and Playlist appearance controls. The Options navigation is alphabetized as Database, Library, Playback, Routing, and Theme.
+- Theme: combines the former Sidebar and Playlist appearance controls. The Options navigation is alphabetized as Database, Playback, Routing, and Theme.
 - Theme / Application: Accent Color accepts standard CSS color syntax, including named colors, hexadecimal values, `rgb()`, `hsl()`, and modern color functions supported by the browser. Application Monospace Font changes app chrome text to the system monospace font.
-- Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, and Console View. The console-tag source control is disabled in query-only catalog mode because MediaScanner must own any stored grouping rewrite.
+- Theme / Sidebar: independently adjust font size, font color, monospace mode, sidebar width, and Path Counts. The console-tag source control is disabled in query-only catalog mode because MediaScanner must own any stored grouping rewrite.
 - Theme / Playlist: independently adjust font size, font color, monospace mode, bold header font, and item spacing.
-- Console View: enables console-grouped database game headings in the main sidebar.
 
 ## Window
 
-- Options: opens in a native child 800 by 600 pixel window with alphabetized Database, Library, Playback, Routing, and Theme sections; focusing it raises only that requested window, avoiding focus churn among auxiliary windows.
-- Options: shows its dark native shell immediately and loads settings/library controls without enumerating the persisted raw folder tree.
-- Library paths: each row shows its stored scan-health color dot, folder name, successful-file total, and Scan Log action. No root mutation or scan action is exposed.
-- Scan Log: the header contains the pathname and all scan totals/status data; the body contains the selectable error-only log.
+- Options: opens in a native child 800 by 600 pixel window with alphabetized Database, Playback, Routing, and Theme sections; focusing it raises only that requested window, avoiding focus churn among auxiliary windows.
+- Options: shows its dark native shell immediately and loads settings and catalog controls without enumerating the persisted raw folder tree.
 
 ## Files
 

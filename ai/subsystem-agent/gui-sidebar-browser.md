@@ -32,8 +32,8 @@
 - Treat a branch click as browser selection/folding only. A final leaf click previews its playable content; only double-click, Enter, or an explicit context action starts playback.
 - Keep playlist scope per selected folder unless the app explicitly changes that model.
 - Keep tree rendering aligned with the renderer-owned in-memory tree shape.
-- Console View groups only the already-loaded root-scoped database game rows; it must not trigger another database query. Sidebar matching uses the loaded game title and compact root name, not live filesystem work.
-- Keep Console View row construction separate from archive playlist hydration; changing a database view must not materialize archive members.
+- Console grouping uses only the already-loaded root-scoped database game rows; it must not trigger another database query. Sidebar matching uses the loaded game title and compact root name, not live filesystem work.
+- Keep console-group row construction separate from archive playlist hydration; changing a database view must not materialize archive members.
 
 ## Files
 

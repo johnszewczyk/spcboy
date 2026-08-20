@@ -22,7 +22,6 @@ contextBridge.exposeInMainWorld("spcBoy", {
   closeOptionsWindow: () => ipcRenderer.invoke("app:close-options"),
   openScanLog: (root) => ipcRenderer.invoke("app:open-scan-log", root),
   onScanLogData: (callback) => ipcRenderer.on("scan-log:data", (_event, root) => callback(root)),
-  setConsoleViewEnabled: (enabled) => ipcRenderer.send("app:console-view-changed", Boolean(enabled)),
   setPlaybackSettings: (settings) => ipcRenderer.send("app:playback-settings-changed", settings),
   setRoutingPreferences: (preferences) => ipcRenderer.invoke("app:routing-preferences-set", preferences || {}),
   onRoutingPreferencesChanged: (callback) => ipcRenderer.on("app:routing-preferences-changed", (_event, preferences) => callback(preferences || {})),
@@ -38,13 +37,12 @@ contextBridge.exposeInMainWorld("spcBoy", {
     ipcRenderer.invoke("library:refresh-tree", rootPath, selectedFolderPath),
   databaseRoots: () => ipcRenderer.invoke("library:database-roots"),
   databaseLocation: () => ipcRenderer.invoke("library:database-location"),
+  reloadDatabaseLibrary: () => ipcRenderer.invoke("library:database-reload"),
   chooseDatabaseLocation: () => ipcRenderer.invoke("library:database-location-choose"),
   useDefaultDatabaseLocation: () => ipcRenderer.invoke("library:database-location-default"),
   databaseGames: () => ipcRenderer.invoke("library:database-games"),
   databaseSearchGames: (query) => ipcRenderer.invoke("library:database-search-games", query),
-  databaseSearchBrowser: (rootPath, query) => ipcRenderer.invoke("library:database-search-browser", rootPath, query),
   databaseGameTracks: (games) => ipcRenderer.invoke("library:database-game-tracks", games),
-  databaseMaintenanceSummary: () => ipcRenderer.invoke("library:database-maintenance-summary"),
   archiveCacheSummary: () => ipcRenderer.invoke("library:archive-cache-summary"),
   clearArchiveCache: () => ipcRenderer.invoke("library:archive-cache-clear"),
   configureArchiveCache: (settings) => ipcRenderer.invoke("library:archive-cache-configure", settings || {}),
@@ -89,9 +87,9 @@ contextBridge.exposeInMainWorld("spcBoy", {
     ipcRenderer.removeAllListeners("library:snapshot");
     ipcRenderer.on("library:snapshot", (_event, snapshot) => handler(snapshot));
   },
-  onConsoleViewChanged: (handler) => {
-    ipcRenderer.removeAllListeners("app:console-view-changed");
-    ipcRenderer.on("app:console-view-changed", (_event, enabled) => handler(Boolean(enabled)));
+  onCatalogReloaded: (handler) => {
+    ipcRenderer.removeAllListeners("library:catalog-reloaded");
+    ipcRenderer.on("library:catalog-reloaded", (_event, location) => handler(location || null));
   },
   onPlaybackSettingsChanged: (handler) => {
     ipcRenderer.removeAllListeners("app:playback-settings-changed");

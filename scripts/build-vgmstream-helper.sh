@@ -6,15 +6,25 @@ SOURCE_DIR="$ROOT_DIR/vendor/vgmstream"
 BUILD_DIR="$ROOT_DIR/.build/vgmstream"
 OUTPUT_FILE="$BUILD_DIR/src/libvgmstream.a"
 SCRIPT_FILE="$ROOT_DIR/scripts/build-vgmstream-helper.sh"
-
-if [[ -f "$OUTPUT_FILE" && "${SPCBOY_FORCE_NATIVE_REBUILD:-0}" != "1" ]]; then
-  newer_source=$(find "$SCRIPT_FILE" "$SOURCE_DIR" -type f -newer "$OUTPUT_FILE" -print -quit 2>/dev/null || true)
-  if [[ -z "$newer_source" ]]; then exit 0; fi
-fi
+PATCH_FILE="$ROOT_DIR/patches/vgmstream-system-ffmpeg.patch"
 
 if [[ ! -d "$SOURCE_DIR" ]]; then
   echo "Missing vendored vgmstream source at $SOURCE_DIR" >&2
   exit 1
+fi
+
+if git -C "$SOURCE_DIR" apply --reverse --check "$PATCH_FILE" 2>/dev/null; then
+  : # The source already contains the documented system-FFmpeg patch.
+elif git -C "$SOURCE_DIR" apply --check "$PATCH_FILE"; then
+  git -C "$SOURCE_DIR" apply "$PATCH_FILE"
+else
+  echo "vgmstream source does not match the documented system-FFmpeg patch." >&2
+  exit 1
+fi
+
+if [[ -f "$OUTPUT_FILE" && "${SPCBOY_FORCE_NATIVE_REBUILD:-0}" != "1" ]]; then
+  newer_source=$(find "$SCRIPT_FILE" "$PATCH_FILE" "$SOURCE_DIR" -type f -newer "$OUTPUT_FILE" -print -quit 2>/dev/null || true)
+  if [[ -z "$newer_source" ]]; then exit 0; fi
 fi
 
 export PKG_CONFIG_PATH="/opt/homebrew/opt/ffmpeg/lib/pkgconfig:/opt/homebrew/opt/libvorbis/lib/pkgconfig:/opt/homebrew/opt/libogg/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"

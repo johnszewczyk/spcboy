@@ -84,6 +84,36 @@ function libraryDatabaseLocation() {
   };
 }
 
+function publishCatalogReloaded(location) {
+  for (const window of [mainWindow, optionsWindow]) {
+    if (window && !window.isDestroyed() && !window.webContents.isLoadingMainFrame()) {
+      window.webContents.send("library:catalog-reloaded", location);
+    }
+  }
+}
+
+async function reloadActiveLibraryDatabase() {
+  if (!libraryDatabase) throw new Error("Library database is not initialized");
+  const location = libraryDatabaseLocation();
+  if (location.requiresRestart) return { ...location, reloaded: false };
+
+  // Validate a replacement reader before releasing the current one. Playback
+  // works from files already selected for the queue, and all catalog access
+  // remains query-only throughout the handoff.
+  const replacement = new CanonicalLibraryReader(location.activePath);
+  await replacement.initialize();
+  const previous = libraryDatabase;
+  libraryDatabase = replacement;
+  try {
+    await previous.close();
+  } catch (error) {
+    console.warn(`[SPCBoy] previous catalog reader shutdown failed: ${error.message}`);
+  }
+  const reloaded = { ...libraryDatabaseLocation(), reloaded: true };
+  publishCatalogReloaded(reloaded);
+  return reloaded;
+}
+
 let playbackScratchRecovery = { recoveredRootCount: 0, recoveredBytes: 0 };
 let archiveCacheRecovery = { recoveredPartialCount: 0, recoveredBytes: 0 };
 let quitAfterArchivePlaybackCleanup = false;
@@ -103,10 +133,6 @@ const { readPlaylist, readPlaylistForFile } = createPlaylistReader({
 });
 const searchDatabaseGames = createLatestRequestCoalescer(
   (query) => libraryDatabase.searchGames(query),
-  []
-);
-const searchDatabaseBrowser = createLatestRequestCoalescer(
-  (rootPath, query) => libraryDatabase.searchBrowserEntries(rootPath, query),
   []
 );
 
@@ -1009,6 +1035,7 @@ ipcMain.handle("app:bootstrap", async () => {
 
 ipcMain.handle("library:choose-root", async () => chooseLibrarySnapshot());
 ipcMain.handle("library:database-location", async () => libraryDatabaseLocation());
+ipcMain.handle("library:database-reload", async () => reloadActiveLibraryDatabase());
 ipcMain.handle("library:database-location-choose", async () => {
   const result = await dialog.showOpenDialog(optionsWindow || mainWindow, {
     title: "Choose Library Database",
@@ -1075,24 +1102,12 @@ ipcMain.handle("library:refresh-tree", async (_event, rootPath, selectedFolderPa
 ipcMain.handle("library:database-roots", async () => libraryDatabase.loadRoots());
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
 ipcMain.handle("library:database-search-games", async (_event, query) => searchDatabaseGames(query));
-ipcMain.handle("library:database-search-browser", async (_event, rootPath, query) =>
-  searchDatabaseBrowser(normalizeFolderPath(rootPath), query));
 ipcMain.handle("library:database-game-tracks", async (_event, games) => {
   const rows = await libraryDatabase.tracksForGames(Array.isArray(games) ? games : []);
   return rows.map((row) => ({
     ...row,
     playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
   }));
-});
-ipcMain.handle("library:database-maintenance-summary", async () => {
-  if (!libraryDatabase) throw new Error("Library database is not initialized");
-  return {
-    indexedTrackCount: await libraryDatabase.trackCount(),
-    unlinkedSourceCount: await libraryDatabase.deadSourceCount(),
-    unlinkedTrackCount: await libraryDatabase.deadTrackCount(),
-    databaseStorage: await libraryDatabase.databaseStorageMetrics(),
-    archiveCache: { ...await archiveCacheSummary(), recovery: archiveCacheRecovery }
-  };
 });
 ipcMain.handle("library:archive-cache-summary", async () => ({
   ...await archiveCacheSummary(),
@@ -1111,14 +1126,6 @@ ipcMain.handle("app:close-options", async (event) => {
   if (window === optionsWindow) window.close();
 });
 ipcMain.handle("app:open-scan-log", async (_event, root) => openScanLogWindow(root));
-ipcMain.on("app:console-view-changed", (event, enabled) => {
-  const sender = BrowserWindow.fromWebContents(event.sender);
-  for (const window of [mainWindow, optionsWindow]) {
-    if (window && !window.isDestroyed() && window !== sender) {
-      window.webContents.send("app:console-view-changed", Boolean(enabled));
-    }
-  }
-});
 ipcMain.on("app:playback-settings-changed", (event, settings) => {
   if (settings && (typeof settings.archiveCacheEnabled === "boolean" || settings.archiveCacheLimitBytes !== undefined)) {
     void configureArchiveCache({

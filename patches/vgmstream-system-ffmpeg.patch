@@ -1,0 +1,22 @@
+diff --git a/cmake/dependencies/ffmpeg.cmake b/cmake/dependencies/ffmpeg.cmake
+index ec844b56..57330b76 100644
+--- a/cmake/dependencies/ffmpeg.cmake
++++ b/cmake/dependencies/ffmpeg.cmake
+@@ -1,5 +1,7 @@
+ if(USE_FFMPEG)
+-	if(NOT FFMPEG_PATH AND NOT BUILD_STATIC)
++	# A static vgmstream archive can still link against an installed FFmpeg.
++	# Only use the bundled FFmpeg path when system discovery is unavailable.
++	if(NOT FFMPEG_PATH)
+ 		# FFmpeg detection
+ 		if(WIN32)
+ 			find_package(FFmpeg COMPONENTS AVFORMAT AVUTIL AVCODEC SWRESAMPLE)
+@@ -49,7 +51,7 @@ if(USE_FFMPEG)
+ 			set(FFMPEG_SOURCE "(system)")
+ 		endif()
+ 	endif()
+-	if(USE_FFMPEG AND NOT WIN32 AND (NOT FFmpeg_FOUND OR FFMPEG_PATH OR BUILD_STATIC))
++	if(USE_FFMPEG AND NOT WIN32 AND (NOT FFmpeg_FOUND OR FFMPEG_PATH))
+ 		set(USE_FFMPEG_LIBOPUS OFF)
+ 		if(NOT EMSCRIPTEN)
+ 			find_package(PkgConfig REQUIRED)

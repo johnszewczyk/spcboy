@@ -127,24 +127,6 @@ class CanonicalLibraryReader {
     return this.loadGames(query);
   }
 
-  async searchBrowserEntries(rootPath, query) {
-    const normalizedRootPath = path.resolve(String(rootPath || ""));
-    const terms = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!normalizedRootPath || !terms.length) return [];
-    const document = "lower(COALESCE(t.filename,'') || ' ' || COALESCE(t.archive_entry,'') || ' ' || COALESCE(t.browser_game,'') || ' ' || COALESCE(t.browser_system,'') || ' ' || COALESCE(m.title,'') || ' ' || COALESCE(m.game,'') || ' ' || COALESCE(m.author,'') || ' ' || COALESCE(m.system,''))";
-    return this.client.query(`
-      SELECT DISTINCT r.path AS rootPath, t.folder_path AS folderPath, t.path, t.filename,
-             t.archive_path AS archivePath, t.archive_entry AS archiveEntry
-      FROM tracks t JOIN library_roots r ON r.id=t.root_id
-      LEFT JOIN track_metadata m ON m.track_id=t.id
-      WHERE r.is_attached=1 AND r.is_enabled=1
-        AND (t.folder_path=${sqlText(normalizedRootPath)} OR t.folder_path LIKE ${sqlText(`${normalizedRootPath}${path.sep}%`)})
-        AND NOT EXISTS (SELECT 1 FROM dead_sources d WHERE d.root_id=t.root_id AND d.path=COALESCE(t.archive_path, t.path))
-        AND ${terms.map((term) => `${document} LIKE ${sqlText(`%${term}%`)}`).join(" AND ")}
-      ORDER BY lower(r.path), lower(t.folder_path), lower(t.filename), lower(COALESCE(t.archive_entry, ''));
-    `);
-  }
-
   async tracksForGames(games) {
     if (!Array.isArray(games) || !games.length) return [];
     const selections = games.map((game) => `(${sqlNumber(game.rootId)}, ${sqlText(game.name)}, ${sqlText(game.system)})`).join(",");

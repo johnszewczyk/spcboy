@@ -1,0 +1,30 @@
+diff --git a/tools/PsfPlayer/CMakeLists.txt b/tools/PsfPlayer/CMakeLists.txt
+index 427b220..7d5a7b3 100644
+--- a/tools/PsfPlayer/CMakeLists.txt
++++ b/tools/PsfPlayer/CMakeLists.txt
+@@ -8,6 +8,13 @@ include(Header)
+ 
+ project(PsfPlayer)
+ 
++option(PSFCORE_ONLY "Build the PSF decoder core without the platform UI" OFF)
++
++if(PSFCORE_ONLY)
++  add_subdirectory(Source)
++  return()
++endif()
++
+ if(TARGET_PLATFORM_UNIX)
+ 	set(USE_QT ON CACHE BOOL "Use Qt UI")
+ endif()
+diff --git a/tools/PsfPlayer/Source/CMakeLists.txt b/tools/PsfPlayer/Source/CMakeLists.txt
+index 4764522..eb95b9c 100644
+--- a/tools/PsfPlayer/Source/CMakeLists.txt
++++ b/tools/PsfPlayer/Source/CMakeLists.txt
+@@ -7,6 +7,7 @@ set(CMAKE_MODULE_PATH
+ include(Header)
+ 
+ project(PsfCore)
++
+ set(PSFCORE_PROJECT_LIBS)
+ 
+ set(PSF_RAR_SUPPORT ON)

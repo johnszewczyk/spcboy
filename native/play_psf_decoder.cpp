@@ -18,9 +18,15 @@ void destroy(NativeDecoder* decoder) {
 }
 
 int configure(NativeDecoder* decoder, int play_ms, int fade_ms) {
-    auto* psf = reinterpret_cast<PlayPsfDecoder*>(decoder);
-    spcboy_play_psf_set_long_play(psf->player, play_ms <= 0 ? 1 : 0);
     (void)fade_ms;
+    auto* psf = reinterpret_cast<PlayPsfDecoder*>(decoder);
+    const int64_t natural_ms = spcboy_play_psf_play_length_frames(psf->player) * 1000 / 44100;
+    // Long Play: loop the tagged PSF length to reach a requested duration that
+    // exceeds it (or an unbounded duration when no cap is supplied). A missing
+    // tagged length also loops so the requested manual duration remains honored;
+    // the shell stops the stream at its (play_ms + fade_ms) frame cap.
+    const bool long_play = play_ms <= 0 || natural_ms <= 0 || play_ms > natural_ms;
+    spcboy_play_psf_set_long_play(psf->player, long_play);
     return 0;
 }
 

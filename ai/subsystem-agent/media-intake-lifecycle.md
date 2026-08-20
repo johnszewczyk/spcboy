@@ -35,6 +35,10 @@
 - Cancellation reaches bounded work and active helper/archive processes.
 - Durable archive cache is SPCBoy-owned playback state and is separate from
   MediaScanner scratch space and catalog persistence.
+- A tar.zst archive is decompressed once per session and the raw TAR is reused
+  (bounded cache) for every member extraction, regardless of format; per-member
+  re-decompression would charge the whole archive against the cache quota on
+  every extraction.
 
 ## Failure Boundaries
 

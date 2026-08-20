@@ -38,7 +38,7 @@ test("sandboxed preload receives the backend registry over IPC before exposing t
 
   assert.deepEqual(JSON.parse(JSON.stringify(exposed.playbackBackends)), registry);
   assert.equal(typeof exposed.bootstrap, "function");
-  assert.equal(typeof exposed.databaseSearchBrowser, "function");
+  assert.equal(typeof exposed.databaseSearchGames, "function");
   assert.equal(typeof exposed.chooseDatabaseLocation, "function");
   assert.equal(exposed.scanDatabaseRoot, undefined);
   assert.equal(exposed.onLibraryOperationState, undefined);

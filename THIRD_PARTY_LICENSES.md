@@ -8,6 +8,13 @@ SPCBoy uses external open-source playback libraries. Their copyright and license
 - License: LGPL-2.1-or-later.
 - Source: <https://github.com/libgme/game-music-emu>
 
+## libsidplayfp (SIDLite)
+
+- Purpose: Commodore 64 SID playback and metadata inspection.
+- License: GPL-2.0-or-later.
+- Source: <https://github.com/libsidplayfp/libsidplayfp>
+- Note: SPCBoy links the Homebrew `libsidplayfp` build and uses its bundled SIDLite emulation.
+
 ## libvgm
 
 - Purpose: VGM, VGZ, GYM, and S98 playback and metadata inspection.

@@ -11,7 +11,7 @@
 - A non-empty query is a temporary third sidebar view and always searches indexed game buckets, regardless of the stored Folders/Database mode.
 - `sidebar-view-state.js` is the production effective-view owner and executes the shared CocoaSpice/SPCBoy search-view contract. Rendering, Enter fallback, and Home/End navigation consult its database content mode while Search covers the stored mode.
 - The renderer filters loaded game buckets immediately, then replaces that optimistic result with the debounced FTS-complete result from enabled roots. The latest-request broker runs the active query and only the newest waiter.
-- Console View groups the same results when enabled. Clearing the query restores the stored underlying view and its disclosure state.
+- Search results are always grouped under console headings. Clearing the query restores the stored underlying view and its disclosure state.
 - Search itself does not interrupt playback.
 
 ## Critical Engineering Notes

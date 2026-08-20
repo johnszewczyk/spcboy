@@ -888,12 +888,6 @@ body.is-file-drag-over::after {
   background: transparent;
 }
 
-.options-library-page {
-  gap: 1rem;
-  padding: 0;
-  background: transparent;
-}
-
 .options-database-page {
   gap: 1rem;
   padding: 0;
@@ -919,7 +913,6 @@ body.is-file-drag-over::after {
 
 .options-subpanel .tool-button { background: rgb(50 50 50); }
 .options-subpanel .tool-button:hover { background: rgb(60 60 60); }
-.options-library-page .options-library-toolbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .options-library-toolbar-single { grid-template-columns: minmax(0, 1fr); }
 
 .options-help-text { color: var(--muted); font-size: 0.9em; }

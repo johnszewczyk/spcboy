@@ -23,8 +23,14 @@ async function handleLibraryRootsChanged(roots) {
     renderAll();
     return;
   }
-  const enabledRoots = state.libraryRoots.filter((root) => root.is_enabled);
-  const activeRoot = enabledRoots.find((root) => root.path === state.rootPath) || enabledRoots[0] || null;
+  if (state.rootPath) {
+    // The raw Folders browser restores its persisted root and selected
+    // folder. Catalog root changes must not discard that selection.
+    renderAll();
+    app.ui.syncTreeSelection();
+    return;
+  }
+  const activeRoot = state.libraryRoots.find((root) => root.is_enabled) || null;
   if (!activeRoot) {
     state.rootPath = null;
     state.tree = [];
@@ -37,24 +43,22 @@ async function handleLibraryRootsChanged(roots) {
     renderAll();
     return;
   }
-  if (activeRoot.path !== state.rootPath) {
-    const snapshot = await window.spcBoy.refreshTree(activeRoot.path, activeRoot.path);
-    Object.assign(state, snapshot);
-    state.selectedTrackId = app.ui.resolveSelectedTrackId(snapshot.playlist);
-    state.lastSelectedTrackId = state.selectedTrackId;
-    persistSettings();
-  }
+  const snapshot = await window.spcBoy.refreshTree(activeRoot.path, activeRoot.path);
+  Object.assign(state, snapshot);
+  state.selectedTrackId = app.ui.resolveSelectedTrackId(snapshot.playlist);
+  state.lastSelectedTrackId = state.selectedTrackId;
+  persistSettings();
   renderAll();
   app.ui.syncTreeSelection();
 }
 
-async function refreshDatabaseMaintenanceSummary() {
-  if (!window.spcBoy?.databaseMaintenanceSummary) return;
+async function refreshArchiveCacheSummary() {
+  if (!window.spcBoy?.archiveCacheSummary) return;
   try {
-    state.databaseMaintenanceSummary = await window.spcBoy.databaseMaintenanceSummary();
+    state.archiveCacheSummary = await window.spcBoy.archiveCacheSummary();
   } catch (error) {
-    state.databaseMaintenanceSummary = null;
-    state.databaseLocationStatus = `Database stats unavailable • ${error.message}`;
+    state.archiveCacheSummary = null;
+    state.databaseLocationStatus = `Archive cache status unavailable • ${error.message}`;
   }
   renderAll();
 }
@@ -84,12 +88,31 @@ async function useDefaultDatabaseLocation() {
   renderAll();
 }
 
+async function handleCatalogReloaded(result) {
+  state.databaseLocation = result || await window.spcBoy?.databaseLocation?.() || null;
+  state.databaseLocationStatus = state.databaseLocation?.reloaded
+    ? "Library reloaded. SPCBoy is reading the latest MediaScanner catalog."
+    : state.databaseLocation?.requiresRestart
+      ? "Restart SPCBoy to use the selected database."
+      : "The shared MediaScanner catalog is active and opened read-only.";
+  if (!window.spcBoy?.isOptionsWindow && window.spcBoy?.databaseRoots) {
+    state.libraryRoots = await window.spcBoy.databaseRoots();
+    await handleLibraryRootsChanged(state.libraryRoots);
+  }
+  renderAll();
+}
+
+async function reloadDatabaseLibrary() {
+  if (!window.spcBoy?.reloadDatabaseLibrary) return;
+  await handleCatalogReloaded(await window.spcBoy.reloadDatabaseLibrary());
+}
+
 async function clearLibraryArchiveCache() {
   if (!window.spcBoy?.clearArchiveCache) return;
   try {
     await window.spcBoy.clearArchiveCache();
   } finally {
-    await refreshDatabaseMaintenanceSummary();
+    await refreshArchiveCacheSummary();
   }
   renderAll();
 }
@@ -97,10 +120,12 @@ async function clearLibraryArchiveCache() {
 Object.assign(app.ui, {
   refreshLibraryRoots,
   handleLibraryRootsChanged,
-  refreshDatabaseMaintenanceSummary,
+  refreshArchiveCacheSummary,
   refreshDatabaseLocation,
   chooseDatabaseLocation,
   useDefaultDatabaseLocation,
+  handleCatalogReloaded,
+  reloadDatabaseLibrary,
   clearLibraryArchiveCache
 });
 })();

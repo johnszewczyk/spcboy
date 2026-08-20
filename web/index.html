@@ -102,8 +102,7 @@
 
         <div class="options-body">
           <nav class="options-nav" aria-label="Options sections">
-            <button id="options-database-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Database</span></button>
-            <button id="options-library-tab" class="options-nav-item is-selected" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-folder-tree"></use></svg><span>Library</span></button>
+            <button id="options-database-tab" class="options-nav-item is-selected" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Database</span></button>
             <button id="options-playback-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-play"></use></svg><span>Playback</span></button>
             <button id="options-routing-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-route"></use></svg><span>Routing</span></button>
             <button id="options-theme-tab" class="options-nav-item" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-palette"></use></svg><span>Theme</span></button>
@@ -125,7 +124,6 @@
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Sidebar Options</div>
                 <label class="options-field"><span>Sidebar Width</span><span class="options-inline-trailing"><input id="sidebar-width-input" class="options-input" type="text" inputmode="numeric" value="20" aria-label="Sidebar width percent" /></span></label>
-                <label class="options-field options-inline-field"><span>Console View</span><input id="console-view-checkbox" type="checkbox" /></label>
                 <label class="options-field options-inline-field"><span>Path Counts</span><input id="sidebar-path-counts-checkbox" type="checkbox" checked /></label>
               </div>
               <div class="options-subpanel">
@@ -142,29 +140,16 @@
               </div>
             </div>
 
-            <div id="options-library-section" class="options-page options-library-page">
-              <div class="options-subpanel">
-                <div class="options-subpanel-title">MediaScanner Roots</div>
-                <p>Library roots and metadata are managed by MediaScanner. SPCBoy reads the selected catalog without modifying it.</p>
-                <div id="library-root-list" class="library-root-list"></div>
-              </div>
-            </div>
-
-            <div id="options-database-section" class="options-page options-database-page is-hidden">
+            <div id="options-database-section" class="options-page options-database-page">
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Database</div>
-                <label class="options-field"><span>Library Database</span><input id="library-database-path" class="options-input" type="text" readonly aria-label="Library database path" /></label>
+                <label class="options-field"><span>MediaScanner Catalog</span><input id="library-database-path" class="options-input" type="text" readonly aria-label="MediaScanner catalog path" /></label>
                 <div class="options-library-toolbar">
+                  <button id="library-database-reload-button" class="tool-button" type="button">Reload Library</button>
                   <button id="library-database-default-button" class="tool-button" type="button">Use Default</button>
                   <button id="library-database-browse-button" class="tool-button" type="button">Browse…</button>
                 </div>
-                <p id="library-database-location-status">The shared MediaScanner catalog is opened read-only. A changed location is applied after restarting SPCBoy.</p>
-                <div class="database-stats-panel">
-                  <div class="database-stat"><span>Indexed Tracks</span><strong id="database-indexed-track-count">—</strong></div>
-                  <div class="database-stat"><span>Unlinked Sources</span><strong id="database-unlinked-source-count">—</strong></div>
-                  <div class="database-stat"><span>Unlinked Tracks</span><strong id="database-unlinked-track-count">—</strong></div>
-                </div>
-                <p>MediaScanner is the sole catalog writer. Use its GUI or CLI to add roots, rescan sources, or perform database maintenance.</p>
+                <p id="library-database-location-status">SPCBoy reads this schema-23 catalog. MediaScanner owns scan paths, scanning, link checks, and cleanup.</p>
               </div>
               <div class="options-subpanel">
                 <div class="options-subpanel-title">Archive Cache</div>

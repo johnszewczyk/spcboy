@@ -733,13 +733,13 @@ async function playTrackNow(trackId, startSeconds = 0, playbackOptions = null) {
   playbackGeneration = generation;
   // Native-state broadcasts can arrive while the async materialize/load path is in flight.
   // Keep this request's offset immutable so a prior track cannot leak its elapsed position.
-  const requestedStartSeconds = Math.max(0, Math.min(startSeconds, currentTotalSeconds(track)));
+  let requestedStartSeconds = Math.max(0, Math.min(startSeconds, currentTotalSeconds(track)));
   const fadeNowSeconds = Math.max(0, Number(playbackOptions?.fadeNowSeconds) || 0);
   const normalBaseSeconds = currentOutputBasePlaybackSeconds(track);
-  const playbackTotalSeconds = fadeNowSeconds > 0
+  let playbackTotalSeconds = fadeNowSeconds > 0
     ? requestedStartSeconds + fadeNowSeconds
     : currentTotalSeconds(track);
-  const playbackBaseSeconds = fadeNowSeconds > 0
+  let playbackBaseSeconds = fadeNowSeconds > 0
     ? Math.max(0.001, requestedStartSeconds)
     : normalBaseSeconds;
   playbackWindow = fadeNowSeconds > 0
@@ -773,8 +773,31 @@ async function playTrackNow(trackId, startSeconds = 0, playbackOptions = null) {
     if (!track.metadataLoaded && playbackApp.ui?.hydrateTrackMetadata) {
       track = await playbackApp.ui.hydrateTrackMetadata(track.id, playbackPath, track.sourceFilename || track.filename) || track;
       state.currentTrackInfo = track;
-      state.totalSeconds = playbackTotalSeconds;
-      updatePlaybackReadout();
+    }
+    // Recompute the playback timing window once metadata is available so a Long
+    // Play-off track uses its decoder-reported natural duration instead of the
+    // manual-duration fallback that the provisional values used above.
+    const recomputedTotalSeconds = fadeNowSeconds > 0
+      ? requestedStartSeconds + fadeNowSeconds
+      : currentTotalSeconds(track);
+    requestedStartSeconds = Math.max(0, Math.min(requestedStartSeconds, recomputedTotalSeconds));
+    const recomputedBaseSeconds = currentOutputBasePlaybackSeconds(track);
+    playbackBaseSeconds = fadeNowSeconds > 0
+      ? Math.max(0.001, requestedStartSeconds)
+      : recomputedBaseSeconds;
+    playbackTotalSeconds = recomputedTotalSeconds;
+    playbackWindow = fadeNowSeconds > 0
+      ? { trackId: track.id, totalSeconds: recomputedTotalSeconds, fadeSeconds: fadeNowSeconds }
+      : null;
+    state.totalSeconds = recomputedTotalSeconds;
+    state.elapsedSeconds = requestedStartSeconds;
+    updatePlaybackReadout();
+    if (state.elapsedSeconds >= state.totalSeconds) {
+      await setPlaybackPowerSaveBlocker(false);
+      state.isPlaying = false;
+      resetNativePlaybackSnapshot();
+      playbackApp.ui.refreshPlaylistPlaybackState();
+      return;
     }
     if (isRenderedDecoderTrack(track)) {
       await playVgmAudio({ ...track, path: playbackPath }, requestedStartSeconds, {

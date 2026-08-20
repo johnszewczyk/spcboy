@@ -18,6 +18,8 @@
 #include "play_psf_decoder.h"
 #include "play_psf_bridge.h"
 #include "highlycomplete_bridge.h"
+#include "sidplay_bridge.h"
+#include "sidplay_decoder.h"
 
 #include <gme/gme.h>
 #include "lazyusf_bridge.h"
@@ -219,13 +221,14 @@ static NativeDecoder* native_decoder_create(const char* file_path, int track_ind
     !strcasecmp(extension, ".aa3") || !strcasecmp(extension, ".adp") || !strcasecmp(extension, ".adpcm") || !strcasecmp(extension, ".adx") || !strcasecmp(extension, ".ads") || !strcasecmp(extension, ".aifc") ||
     !strcasecmp(extension, ".at3") || !strcasecmp(extension, ".aus") || !strcasecmp(extension, ".bik") || !strcasecmp(extension, ".bika") || !strcasecmp(extension, ".bk2") || !strcasecmp(extension, ".bnk") || !strcasecmp(extension, ".fsb") ||
     !strcasecmp(extension, ".genh") || !strcasecmp(extension, ".hd") || !strcasecmp(extension, ".hbd") || !strcasecmp(extension, ".iecs") || !strcasecmp(extension, ".int") || !strcasecmp(extension, ".mib") || !strcasecmp(extension, ".msf") ||
-    !strcasecmp(extension, ".mtaf") || !strcasecmp(extension, ".ogg") || !strcasecmp(extension, ".ps3") || !strcasecmp(extension, ".rws") || !strcasecmp(extension, ".s14") || !strcasecmp(extension, ".ss2") ||
+    !strcasecmp(extension, ".mtaf") || !strcasecmp(extension, ".ps3") || !strcasecmp(extension, ".rws") || !strcasecmp(extension, ".s14") || !strcasecmp(extension, ".ss2") ||
     !strcasecmp(extension, ".stream") || !strcasecmp(extension, ".strm") || !strcasecmp(extension, ".svag") || !strcasecmp(extension, ".swav") || !strcasecmp(extension, ".txtp") || !strcasecmp(extension, ".vag") ||
     !strcasecmp(extension, ".xa") || !strcasecmp(extension, ".xmd") || !strcasecmp(extension, ".xvag"));
   if (is_vgmstream) {
     return native_vgmstream_decoder_create(file_path, track_index);
   }
   const int is_lazyusf = extension && (!strcasecmp(extension, ".usf") || !strcasecmp(extension, ".miniusf"));
+  const int is_sid = extension && (!strcasecmp(extension, ".sid"));
   if (is_libvgm) {
     return native_libvgm_decoder_create(file_path, track_index);
   }
@@ -243,6 +246,9 @@ static NativeDecoder* native_decoder_create(const char* file_path, int track_ind
     decoder->base.vtable = &lazyusf_decoder_vtable;
     decoder->base.backend_id = "lazyusf";
     return (NativeDecoder*)decoder;
+  }
+  if (is_sid) {
+    return native_sid_decoder_create(file_path, track_index);
   }
 
   GmeDecoder* decoder = (GmeDecoder*)calloc(1, sizeof(*decoder));
@@ -825,9 +831,34 @@ static int is_twosf_path(const char* file_path) {
 static int is_vgmstream_path(const char* file_path) {
   const char* extension = strrchr(file_path, '.');
   if (!extension) return 0;
-  const char* supported[] = { ".aa3", ".adp", ".adpcm", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bik", ".bika", ".bk2", ".bnk", ".fsb", ".genh", ".hd", ".hbd", ".iecs", ".int", ".mib", ".msf", ".mtaf", ".ogg", ".ps3", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".txtp", ".vag", ".xa", ".xmd", ".xvag" };
+  const char* supported[] = { ".aa3", ".adp", ".adpcm", ".adx", ".ads", ".aifc", ".at3", ".aus", ".bik", ".bika", ".bk2", ".bnk", ".fsb", ".genh", ".hd", ".hbd", ".iecs", ".int", ".mib", ".msf", ".mtaf", ".ps3", ".rws", ".s14", ".ss2", ".stream", ".strm", ".svag", ".swav", ".txtp", ".vag", ".xa", ".xmd", ".xvag" };
   for (size_t index = 0; index < sizeof(supported) / sizeof(supported[0]); index += 1) if (!strcasecmp(extension, supported[index])) return 1;
   return 0;
+}
+
+static int is_sid_path(const char* file_path) {
+  const char* extension = strrchr(file_path, '.');
+  return extension && !strcasecmp(extension, ".sid");
+}
+
+static int inspect_sid_to_json(const char* file_path, char** json_output) {
+  sid_metadata_t metadata;
+  memset(&metadata, 0, sizeof(metadata));
+  char* error = NULL;
+  if (sid_inspect_metadata(file_path, &metadata, &error) != 0) {
+    if (error) { fprintf(stderr, "%s\n", error); free(error); }
+    return 1;
+  }
+  FILE* stream = open_memstream(json_output, &(size_t){0});
+  if (!stream) { sid_metadata_clear(&metadata); return 1; }
+  fputs("{\"system\":", stream); json_print_escaped_to(stream, metadata.system);
+  fputs(",\"game\":", stream); json_print_escaped_to(stream, metadata.game);
+  fputs(",\"song\":", stream); json_print_escaped_to(stream, metadata.title);
+  fputs(",\"author\":", stream); json_print_escaped_to(stream, metadata.artist);
+  fprintf(stream, ",\"length\":%d,\"intro_length\":0,\"loop_length\":0,\"play_length\":%d,\"fade_length\":%d}", metadata.play_length_ms, metadata.play_length_ms, metadata.fade_length_ms);
+  int result = fclose(stream) == 0 ? 0 : 1;
+  sid_metadata_clear(&metadata);
+  return result;
 }
 
 static int inspect_vgmstream_to_json(const char* file_path, char** json_output) {
@@ -951,6 +982,13 @@ static int inspect_file(const char* file_path) {
     free(json);
     return result;
   }
+  if (is_sid_path(file_path)) {
+    char* json = NULL;
+    int result = inspect_sid_to_json(file_path, &json);
+    if (result == 0 && json != NULL) { fputs(json, stdout); fputc('\n', stdout); }
+    free(json);
+    return result;
+  }
   Music_Emu* emu = NULL;
   gme_info_t* info = NULL;
   gme_err_t error = gme_open_file(file_path, &emu, gme_info_only);
@@ -992,6 +1030,7 @@ static int inspect_file_to_json(const char* file_path, char** json_output) {
   if (is_play_psf_path(file_path)) return inspect_play_psf_to_json(file_path, json_output);
   if (is_highlycomplete_path(file_path)) return inspect_highlycomplete_to_json(file_path, json_output);
   if (is_twosf_path(file_path)) return inspect_twosf_to_json(file_path, json_output);
+  if (is_sid_path(file_path)) return inspect_sid_to_json(file_path, json_output);
   if (is_vgmstream_path(file_path)) return inspect_vgmstream_to_json(file_path, json_output);
   Music_Emu* emu = NULL;
   gme_info_t* info = NULL;
@@ -1131,6 +1170,15 @@ static int inspect_file_all_to_json(const char* file_path, char** json_output) {
     free(track);
     return fclose(stream) == 0 ? 0 : 1;
   }
+  if (is_sid_path(file_path)) {
+    char* track = NULL;
+    if (inspect_sid_to_json(file_path, &track) != 0 || !track) { free(track); return 1; }
+    FILE* stream = open_memstream(json_output, &(size_t){0});
+    if (!stream) { free(track); return 1; }
+    fprintf(stream, "{\"track_count\":1,\"tracks\":[%s]}", track);
+    free(track);
+    return fclose(stream) == 0 ? 0 : 1;
+  }
   Music_Emu* emu = NULL;
   char* json = NULL;
   size_t json_length = 0;
@@ -1211,7 +1259,7 @@ static int write_wav_header(uint32_t pcm_byte_length) {
 }
 
 static int is_native_pcm_path(const char* file_path) {
-  return is_highlycomplete_path(file_path) || is_twosf_path(file_path) || is_vgmstream_path(file_path) || is_play_psf_path(file_path);
+  return is_highlycomplete_path(file_path) || is_twosf_path(file_path) || is_vgmstream_path(file_path) || is_play_psf_path(file_path) || is_sid_path(file_path);
 }
 
 static void apply_native_fade(int16_t* samples, int frame_count, int start_ms, int play_ms, int fade_ms) {

@@ -16,7 +16,7 @@
 
 ## Persistence
 
-- Options: Theme owns persisted Application, Sidebar, and Playlist typography, Sidebar width and Console View, Playlist item spacing, and Accent Color.
+- Options: Theme owns persisted Application, Sidebar, and Playlist typography, Sidebar width, Playlist item spacing, and Accent Color.
 
 ## Files
 

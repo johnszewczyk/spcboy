@@ -10,14 +10,18 @@ let columnMenu = null;
 let autoSizedPlaylistSignature = null;
 let textMeasureContext = null;
 let renderedDatabaseGames = null;
-let renderedDatabaseConsoleView = null;
 let databaseGameButtons = [];
 let databaseEmptyState = null;
 let databaseConsoleGroups = [];
-const collapsedDatabaseConsoles = new Set();
+let collapsedDatabaseConsoles = new Set();
 let browserClickTimer = 0;
 let databaseClickTimer = 0;
 let sidebarSearchTimer = 0;
+
+function syncCollapsedConsolePersistence() {
+  state.collapsedConsoleNames = [...collapsedDatabaseConsoles];
+  persistSettings();
+}
 
 function currentSidebarView() {
   return sidebarViewState.resolve(state.sidebarMode, state.sidebarQuery);
@@ -290,7 +294,7 @@ function jumpFocusedListToEdge(toEnd, focused = document.activeElement) {
       if (nodes.length) selectBrowserNode(nodes[toEnd ? nodes.length - 1 : 0], { focus: true });
       return true;
     }
-    const games = [...refs.treeRoot.querySelectorAll(".database-game-row:not(.is-hidden)")];
+    const games = [...refs.treeRoot.querySelectorAll(".database-console-games:not(.is-hidden) .database-game-row")];
     const target = games[toEnd ? games.length - 1 : 0];
     target?.focus();
     return Boolean(target);
@@ -419,126 +423,16 @@ function filteredTree() {
   }
 
   const localMatches = state.tree.map(filterNode).filter(Boolean);
-  if (Array.isArray(state.folderSearchEntries) && state.folderSearchEntries.length) {
-    return mergeBrowserSearchTrees(browserSearchTree(state.folderSearchEntries), localMatches);
-  }
   return localMatches;
-}
-
-function browserSearchTree(entries) {
-  const roots = new Map();
-  const folders = new Map();
-  const filePaths = new Set();
-  const folderKey = (rootPath, folderPath) => `${rootPath}\u0000${folderPath}`;
-
-  function rootFor(rootPath) {
-    let root = roots.get(rootPath);
-    if (root) return root;
-    root = {
-      id: rootPath,
-      kind: "folder",
-      name: rootPath.split(/[\\/]/).filter(Boolean).at(-1) || rootPath,
-      path: rootPath,
-      children: [],
-      childrenLoaded: false
-    };
-    roots.set(rootPath, root);
-    folders.set(folderKey(rootPath, rootPath), root);
-    return root;
-  }
-
-  function folderFor(rootPath, folderPath) {
-    if (folders.has(folderKey(rootPath, folderPath))) return folders.get(folderKey(rootPath, folderPath));
-    const root = rootFor(rootPath);
-    const relative = folderPath.startsWith(rootPath)
-      ? folderPath.slice(rootPath.length).replace(/^[/\\]+/, "")
-      : "";
-    const separator = rootPath.includes("\\") ? "\\" : "/";
-    let currentPath = rootPath;
-    let current = root;
-    for (const segment of relative.split(/[\\/]+/).filter(Boolean)) {
-      currentPath = `${currentPath}${separator}${segment}`;
-      const currentKey = folderKey(rootPath, currentPath);
-      let child = folders.get(currentKey);
-      if (!child) {
-        child = { id: currentPath, kind: "folder", name: segment, path: currentPath, children: [], childrenLoaded: false };
-        folders.set(currentKey, child);
-        current.children.push(child);
-      }
-      current = child;
-    }
-    return current;
-  }
-
-  for (const entry of entries) {
-    const rootPath = entry.rootPath || state.rootPath;
-    if (!rootPath || !entry.folderPath) continue;
-    const folder = folderFor(rootPath, entry.folderPath);
-    const sourcePath = entry.archivePath || entry.path;
-    if (!sourcePath || filePaths.has(sourcePath)) continue;
-    filePaths.add(sourcePath);
-    const sourceName = String(sourcePath).split(/[\\/]/).at(-1) || entry.filename || sourcePath;
-    folder.children.push({
-      id: sourcePath,
-      kind: "file",
-      name: sourceName,
-      path: sourcePath,
-      parentPath: entry.folderPath,
-      children: [],
-      childrenLoaded: true
-    });
-  }
-
-  function sortChildren(node) {
-    node.children.sort((left, right) => {
-      if (left.kind !== right.kind) return left.kind === "folder" ? -1 : 1;
-      return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
-    });
-    node.children.forEach(sortChildren);
-  }
-  const result = [...roots.values()];
-  result.forEach(sortChildren);
-  return result;
-}
-
-function mergeBrowserSearchTrees(indexedTree, localTree) {
-  const indexedByPath = new Map();
-  function index(nodes) {
-    for (const node of nodes) {
-      indexedByPath.set(node.path, node);
-      index(node.children || []);
-    }
-  }
-  function merge(nodes, target) {
-    for (const node of nodes) {
-      const existing = indexedByPath.get(node.path);
-      if (!existing) {
-        target.push(node);
-        index([node]);
-        continue;
-      }
-      if (node.kind === "folder") merge(node.children || [], existing.children);
-    }
-  }
-  index(indexedTree);
-  merge(localTree, indexedTree);
-  return indexedTree;
 }
 
 function renderTree() {
   renderedDatabaseGames = null;
-  renderedDatabaseConsoleView = null;
   databaseGameButtons = [];
   databaseEmptyState = null;
   databaseConsoleGroups = [];
   selectedBrowserButton = null;
   resetSidebarContent();
-  if (state.folderSidebarError) {
-    const error = document.createElement("div");
-    error.className = "empty sidebar-empty sidebar-error";
-    error.textContent = state.folderSidebarError;
-    refs.treeRoot.appendChild(error);
-  }
   const visibleTree = filteredTree();
   if (visibleTree.length === 0) {
     const empty = document.createElement("div");
@@ -636,103 +530,95 @@ function makeDatabaseGameButton(game) {
 
 function renderDatabaseGames() {
   const gamesForView = visibleDatabaseGames();
-  if (renderedDatabaseGames !== gamesForView || renderedDatabaseConsoleView !== state.consoleViewEnabled) {
+  if (renderedDatabaseGames !== gamesForView) {
     resetSidebarContent();
     selectedDatabaseGameButton = null;
     databaseConsoleGroups = [];
-    if (state.consoleViewEnabled) {
-      const groupedGames = new Map();
-      for (const game of gamesForView) {
-        const consoleName = databaseConsoleName(game);
-        const games = groupedGames.get(consoleName) || [];
-        games.push(game);
-        groupedGames.set(consoleName, games);
-      }
-      databaseGameButtons = [];
-      [...groupedGames.keys()].sort((left, right) => left.localeCompare(right)).forEach((consoleName) => {
-        const group = document.createElement("div");
-        group.className = "database-console-group";
-        const heading = document.createElement("button");
-        heading.type = "button";
-        heading.className = `database-console-row${state.selectedDatabaseConsoleName === consoleName && !state.selectedDatabaseGameKey ? " is-selected" : ""}`;
-        heading.dataset.databaseConsoleName = consoleName;
-        heading.tabIndex = 0;
-        const expanded = !collapsedDatabaseConsoles.has(consoleName);
-        heading.innerHTML = `<span class="database-disclosure">${expanded ? "▾" : "▸"}</span><span class="database-console-label">${escapeHtml(consoleName)}</span>`;
-        const games = document.createElement("div");
-        games.className = "database-console-games";
-        games.classList.toggle("is-hidden", !expanded);
-        heading.addEventListener("click", () => {
-          state.selectedDatabaseConsoleName = consoleName;
-          state.selectedDatabaseGameKey = null;
-          persistSettings();
-          // Derive disclosure state from the model, not from the currently
-          // filtered DOM. A search can temporarily force a group open and
-          // otherwise made a group such as NEC PC-98 appear impossible to
-          // close until Fold All was used.
-          const nextExpanded = collapsedDatabaseConsoles.has(consoleName);
-          if (nextExpanded) collapsedDatabaseConsoles.delete(consoleName);
-          else collapsedDatabaseConsoles.add(consoleName);
-          heading.innerHTML = `<span class="database-disclosure">${nextExpanded ? "▾" : "▸"}</span><span class="database-console-label">${escapeHtml(consoleName)}</span>`;
-          refs.treeRoot.querySelectorAll(".database-game-row.is-selected, .database-console-row.is-selected").forEach((row) => row.classList.remove("is-selected"));
-          heading.classList.add("is-selected");
-          scheduleSelectionIndicators();
-          games.classList.toggle("is-hidden", !nextExpanded);
-        });
-        heading.addEventListener("keydown", (event) => {
-          if (event.key !== " ") return;
-          event.preventDefault();
-          heading.click();
-        });
-        heading.addEventListener("dblclick", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          state.selectedDatabaseConsoleName = consoleName;
-          state.selectedDatabaseGameKey = null;
-          activateDatabaseSelection().catch((error) => reportDatabaseSidebarError("play the selected console", error));
-        });
-        groupedGames.get(consoleName).forEach((game) => {
-          const button = makeDatabaseGameButton(game);
-          games.appendChild(button);
-          databaseGameButtons.push(button);
-        });
-        group.append(heading, games);
-        refs.treeRoot.appendChild(group);
-        databaseConsoleGroups.push({ group, games, consoleName });
-      });
-    } else {
-      databaseGameButtons = gamesForView.map(makeDatabaseGameButton);
-      databaseGameButtons.forEach((button) => refs.treeRoot.appendChild(button));
+    const groupedGames = new Map();
+    for (const game of gamesForView) {
+      const consoleName = databaseConsoleName(game);
+      const games = groupedGames.get(consoleName) || [];
+      games.push(game);
+      groupedGames.set(consoleName, games);
     }
+    databaseGameButtons = [];
+    [...groupedGames.keys()].sort((left, right) => left.localeCompare(right)).forEach((consoleName) => {
+      const group = document.createElement("div");
+      group.className = "database-console-group";
+      const heading = document.createElement("button");
+      heading.type = "button";
+      heading.className = `database-console-row${state.selectedDatabaseConsoleName === consoleName && !state.selectedDatabaseGameKey ? " is-selected" : ""}`;
+      heading.dataset.databaseConsoleName = consoleName;
+      heading.tabIndex = 0;
+      const expanded = !collapsedDatabaseConsoles.has(consoleName);
+      heading.innerHTML = `<span class="database-disclosure">${expanded ? "▾" : "▸"}</span><span class="database-console-label">${escapeHtml(consoleName)}</span>`;
+      const games = document.createElement("div");
+      games.className = "database-console-games";
+      games.classList.toggle("is-hidden", !expanded);
+      heading.addEventListener("click", () => {
+        state.selectedDatabaseConsoleName = consoleName;
+        state.selectedDatabaseGameKey = null;
+        persistSettings();
+        // Derive disclosure state from the model, not from the currently
+        // filtered DOM. A search can temporarily force a group open and
+        // otherwise made a group such as NEC PC-98 appear impossible to
+        // close until Fold All was used.
+        const nextExpanded = collapsedDatabaseConsoles.has(consoleName);
+        if (nextExpanded) collapsedDatabaseConsoles.delete(consoleName);
+        else collapsedDatabaseConsoles.add(consoleName);
+        syncCollapsedConsolePersistence();
+        heading.innerHTML = `<span class="database-disclosure">${nextExpanded ? "▾" : "▸"}</span><span class="database-console-label">${escapeHtml(consoleName)}</span>`;
+        refs.treeRoot.querySelectorAll(".database-game-row.is-selected, .database-console-row.is-selected").forEach((row) => row.classList.remove("is-selected"));
+        heading.classList.add("is-selected");
+        scheduleSelectionIndicators();
+        games.classList.toggle("is-hidden", !nextExpanded);
+      });
+      heading.addEventListener("keydown", (event) => {
+        if (event.key !== " ") return;
+        event.preventDefault();
+        heading.click();
+      });
+      heading.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        state.selectedDatabaseConsoleName = consoleName;
+        state.selectedDatabaseGameKey = null;
+        activateDatabaseSelection().catch((error) => reportDatabaseSidebarError("play the selected console", error));
+      });
+      groupedGames.get(consoleName).forEach((game) => {
+        const button = makeDatabaseGameButton(game);
+        games.appendChild(button);
+        databaseGameButtons.push(button);
+      });
+      group.append(heading, games);
+      refs.treeRoot.appendChild(group);
+      databaseConsoleGroups.push({ group, games, consoleName });
+    });
 
     databaseEmptyState = document.createElement("div");
     databaseEmptyState.className = "empty sidebar-empty";
     refs.treeRoot.appendChild(databaseEmptyState);
     renderedDatabaseGames = gamesForView;
-    renderedDatabaseConsoleView = state.consoleViewEnabled;
   }
 
   const query = state.sidebarQuery.trim();
-  let visibleCount = 0;
   for (const button of databaseGameButtons) {
-    const visible = true;
     button.classList.remove("is-hidden");
     button.classList.toggle("is-selected", state.selectedDatabaseGameKey === button.dataset.databaseGameKey);
     if (state.selectedDatabaseGameKey === button.dataset.databaseGameKey) selectedDatabaseGameButton = button;
-    if (visible) visibleCount += 1;
   }
 
   for (const { group, games, consoleName } of databaseConsoleGroups) {
-    const hasVisibleGame = [...games.children].some((button) => !button.classList.contains("is-hidden"));
-    group.classList.toggle("is-hidden", !hasVisibleGame);
-    if (query && hasVisibleGame) {
+    if (query) {
       games.classList.remove("is-hidden");
     } else {
       games.classList.toggle("is-hidden", collapsedDatabaseConsoles.has(consoleName));
     }
+    const disclosure = group.querySelector(".database-console-row .database-disclosure");
+    if (disclosure) disclosure.textContent = games.classList.contains("is-hidden") ? "▸" : "▾";
   }
 
-  databaseEmptyState.classList.toggle("is-hidden", !state.databaseSidebarError && visibleCount > 0);
+  databaseEmptyState.classList.toggle("is-hidden", !state.databaseSidebarError && gamesForView.length > 0);
   databaseEmptyState.textContent = state.databaseSidebarError || (state.databaseGames.length
     ? "No database games match this search."
     : "Use MediaScanner to populate the selected database.");
@@ -744,6 +630,7 @@ function setAllDatabaseConsolesCollapsed(collapsed) {
     if (collapsed) collapsedDatabaseConsoles.add(consoleName);
     else collapsedDatabaseConsoles.delete(consoleName);
   }
+  syncCollapsedConsolePersistence();
   renderDatabaseGames();
 }
 
@@ -799,10 +686,7 @@ async function refreshDatabaseGamesForVisibleRoots() {
 
 function updateSidebarSearch(query) {
   state.sidebarQuery = String(query || "");
-  state.folderSearchGeneration += 1;
   const databaseGeneration = ++state.databaseSearchGeneration;
-  state.folderSearchEntries = null;
-  state.folderSidebarError = "";
   state.databaseSearchGames = state.sidebarQuery.trim() ? immediateDatabaseSearch(state.sidebarQuery) : null;
   window.clearTimeout(sidebarSearchTimer);
   renderSidebar();
@@ -883,7 +767,7 @@ async function loadDatabaseGamesIntoPlaylist(games) {
 
 async function activateDatabaseSelection() {
   const gamesForView = visibleDatabaseGames();
-  if (state.selectedDatabaseConsoleName && state.consoleViewEnabled) {
+  if (state.selectedDatabaseConsoleName) {
     const games = gamesForView.filter((game) => databaseConsoleName(game) === state.selectedDatabaseConsoleName);
     if (games.length) {
       await loadDatabaseGamesIntoPlaylist(games);
@@ -1082,11 +966,30 @@ function beginColumnResize(event, columnId, header) {
     const nextWidth = Math.max(4, Math.min(80, startWidth + ((moveEvent.clientX - startX) / tableWidth) * 100));
     state.columnWidths[columnId] = nextWidth;
     header.style.width = `${nextWidth}%`;
+    for (const row of playlistRowsByTrackId.values()) {
+      const cell = row.querySelector(`[data-column-id="${CSS.escape(columnId)}"]`);
+      if (cell) cell.style.width = `${nextWidth}%`;
+    }
   };
   const onUp = () => {
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
+    const columns = orderedColumns();
+    const otherColumns = columns.filter((column) => column.id !== columnId);
+    const draggedWidth = state.columnWidths[columnId];
+    const targetOtherTotal = Math.max(4 * otherColumns.length, 100 - draggedWidth);
+    const otherTotal = otherColumns.reduce((sum, column) => sum + state.columnWidths[column.id], 0);
+    if (otherTotal > 0) {
+      for (const column of otherColumns) {
+        state.columnWidths[column.id] = Math.max(4, state.columnWidths[column.id] * targetOtherTotal / otherTotal);
+      }
+    } else {
+      const fallback = targetOtherTotal / Math.max(1, otherColumns.length);
+      for (const column of otherColumns) state.columnWidths[column.id] = fallback;
+    }
     persistSettings();
+    renderPlaylistHeader();
+    syncPlaylistColumnWidths();
   };
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerup", onUp, { once: true });
@@ -1142,6 +1045,7 @@ function autoSizeColumn(columnId) {
   if (!Number.isFinite(previousWidth)) state.columnWidths[columnId] = nextWidth;
   persistSettings();
   renderPlaylistHeader();
+  syncPlaylistColumnWidths();
 }
 
 function renderPlaylistHeader() {
@@ -1394,6 +1298,7 @@ function renderPlaylist() {
     autoSizedPlaylistSignature = playlistSignature;
     autoSizeColumns();
     renderPlaylistHeader();
+    syncPlaylistColumnWidths();
   }
   scheduleSelectionIndicators();
 }
@@ -1458,12 +1363,6 @@ function broadcastAppearanceSettings() {
   window.spcBoy?.setAppearanceSettings?.(appearanceSettings());
 }
 
-function showScanLog(root) {
-  if (window.spcBoy?.openScanLog) {
-    window.spcBoy.openScanLog(root).catch((error) => console.error("[SPCBoy] scan log window failed", error));
-  }
-}
-
 function formatArchiveCacheSummary(summary) {
   const size = `${(Number(summary?.byteCount || 0) / (1024 * 1024)).toFixed(1)} MB`;
   const limit = Number(summary?.limitBytes || state.archiveCacheLimitBytes || 0);
@@ -1515,18 +1414,15 @@ function renderAll() {
   applyUISettings();
   refs.optionsOverlay.classList.toggle("is-hidden", !state.optionsOpen);
   refs.optionsOverlay.setAttribute("aria-hidden", state.optionsOpen ? "false" : "true");
-  const librarySelected = state.optionsSection === "library";
   const databaseSelected = state.optionsSection === "database";
   const routingSelected = state.optionsSection === "routing";
   const playbackSelected = state.optionsSection === "playback";
   const themeSelected = state.optionsSection === "theme";
-  refs.optionsLibraryTab.classList.toggle("is-selected", librarySelected);
   refs.optionsDatabaseTab.classList.toggle("is-selected", databaseSelected);
   refs.optionsRoutingTab.classList.toggle("is-selected", routingSelected);
   refs.optionsPlaybackTab.classList.toggle("is-selected", playbackSelected);
   refs.optionsThemeTab.classList.toggle("is-selected", themeSelected);
   refs.optionsThemeSection.classList.toggle("is-hidden", !themeSelected);
-  refs.optionsLibrarySection.classList.toggle("is-hidden", !librarySelected);
   refs.optionsDatabaseSection.classList.toggle("is-hidden", !databaseSelected);
   refs.optionsRoutingSection.classList.toggle("is-hidden", !routingSelected);
   refs.optionsPlaybackSection.classList.toggle("is-hidden", !playbackSelected);
@@ -1560,14 +1456,10 @@ function renderAll() {
   refs.repeatButton.title = repeatTitles[state.repeatMode];
   refs.repeatButton.setAttribute("aria-label", repeatTitles[state.repeatMode]);
   refs.libraryDatabasePath.value = state.databaseLocation?.configuredPath || "";
-  refs.libraryDatabaseLocationStatus.textContent = state.databaseLocationStatus || "The shared MediaScanner catalog is opened read-only. A changed location is applied after restarting SPCBoy.";
+  refs.libraryDatabaseLocationStatus.textContent = state.databaseLocationStatus || "SPCBoy reads this schema-23 catalog. MediaScanner owns scan paths, scanning, link checks, and cleanup.";
+  refs.libraryDatabaseReloadButton.disabled = Boolean(state.databaseLocation?.requiresRestart);
   refs.libraryClearCacheButton.disabled = false;
-  const maintenance = state.databaseMaintenanceSummary;
-  refs.databaseIndexedTrackCount.textContent = maintenance ? String(maintenance.indexedTrackCount) : "—";
-  refs.databaseUnlinkedSourceCount.textContent = maintenance ? String(maintenance.unlinkedSourceCount) : "—";
-  refs.databaseUnlinkedTrackCount.textContent = maintenance ? String(maintenance.unlinkedTrackCount) : "—";
-  refs.databaseCacheSummary.textContent = maintenance?.archiveCache ? formatArchiveCacheSummary(maintenance.archiveCache) : "—";
-  refs.consoleViewCheckbox.checked = state.consoleViewEnabled;
+  refs.databaseCacheSummary.textContent = state.archiveCacheSummary ? formatArchiveCacheSummary(state.archiveCacheSummary) : "—";
   refs.equalizerEnabledCheckbox.checked = state.equalizerEnabled;
   refs.equalizerToolbarButton.classList.toggle("is-selected", state.equalizerEnabled);
   refs.equalizerToolbarButton.setAttribute("aria-pressed", state.equalizerEnabled ? "true" : "false");
@@ -1580,36 +1472,12 @@ function renderAll() {
     refs.equalizerBandValues[index].textContent = `${(state.equalizerBandGains[index] || 0) >= 0 ? "+" : ""}${(state.equalizerBandGains[index] || 0).toFixed(1)} dB`;
   });
   syncAnimatedRanges();
-  const sortedRoots = [...state.libraryRoots].sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true, sensitivity: "base" }));
-  refs.libraryRootList.innerHTML = sortedRoots.length
-    ? sortedRoots.map((root) => {
-      const hasIssue = root.needs_rescan || root.last_scan_error_count || root.last_scan_error;
-      const health = !root.last_scan_completed_at
-        ? '<span class="library-root-health unknown" title="This folder has not been scanned.">●</span>'
-        : hasIssue
-          ? '<span class="library-root-health needs-rescan" title="This root needs attention.">●</span>'
-          : '<span class="library-root-health clean" title="Latest scan completed without errors.">●</span>';
-      const displayName = root.path.split(/[\\/]/).filter(Boolean).pop() || root.path;
-      return `
-      <div class="library-root-row" data-root-id="${root.id}">
-        <div class="library-root-main" title="${escapeHtml(root.path)}">${health}<span class="library-root-name">${escapeHtml(displayName)}</span></div>
-        <div class="library-root-actions">
-          <button class="tool-button glyph-button library-root-log" type="button" title="Open scan log" aria-label="Open scan log"><svg class="ui-icon" aria-hidden="true"><use href="#icon-scroll-text"></use></svg></button>
-        </div>
-      </div>`;
-    }).join("")
-    : '<div class="empty">No library folders configured.</div>';
   renderSidebar();
   renderPlaylistHeader();
   renderPlaylist();
   uiApp.playback.updateTimingSummary();
   uiApp.playback.updatePlaybackReadout();
   uiApp.playback.updateNativeDiagnostics();
-  refs.libraryRootList.querySelectorAll(".library-root-row").forEach((row) => {
-    const rootId = Number(row.dataset.rootId);
-    const root = state.libraryRoots.find((entry) => Number(entry.id) === rootId);
-    row.querySelector(".library-root-log")?.addEventListener("click", () => showScanLog(root));
-  });
 }
 
 function selectedTrackIndex() {
@@ -1735,6 +1603,7 @@ async function hydrateTrackMetadata(trackId, inspectionPath = null, sourceName =
 function setPlayTime(nextSeconds) {
   state.manualPlayTimeSeconds = uiApp.normalizePlayTime(nextSeconds);
   persistSettings();
+  window.spcBoy?.setPlaybackSettings?.({ manualPlayTimeSeconds: state.manualPlayTimeSeconds });
   uiApp.playback.refreshPlaybackForTimingChange().catch((error) => {
     console.error(error);
   });
@@ -1791,10 +1660,7 @@ async function applyArchiveCacheSettings() {
   });
   const configured = await window.spcBoy?.configureArchiveCache?.(settings);
   if (configured?.summary) {
-    state.databaseMaintenanceSummary = {
-      ...(state.databaseMaintenanceSummary || {}),
-      archiveCache: { ...configured.summary, enabled: configured.enabled, limitBytes: configured.limitBytes }
-    };
+    state.archiveCacheSummary = { ...configured.summary, enabled: configured.enabled, limitBytes: configured.limitBytes };
   }
   renderAll();
 }
@@ -1867,6 +1733,7 @@ function commitSpcLengthInput(rawValue) {
   const parsedSeconds = uiApp.parseDurationSeconds(rawValue);
   state.manualPlayTimeSeconds = uiApp.normalizePlayTime(parsedSeconds ?? state.manualPlayTimeSeconds);
   persistSettings();
+  window.spcBoy?.setPlaybackSettings?.({ manualPlayTimeSeconds: state.manualPlayTimeSeconds });
   uiApp.playback.refreshPlaybackForTimingChange().catch((error) => {
     console.error(error);
   });
@@ -1876,6 +1743,7 @@ function commitSpcFadeInput(rawValue) {
   const parsedSeconds = uiApp.parseDurationSeconds(rawValue);
   state.spcFadeSeconds = uiApp.normalizeFadeTime(parsedSeconds ?? state.spcFadeSeconds);
   persistSettings();
+  window.spcBoy?.setPlaybackSettings?.({ spcFadeSeconds: state.spcFadeSeconds });
   uiApp.playback.refreshPlaybackForTimingChange().catch((error) => {
     console.error(error);
   });
@@ -1927,13 +1795,6 @@ function setSidebarWidth(nextWidth) {
   state.sidebarWidthPercent = uiApp.normalizeSidebarWidth(nextWidth);
   persistSettings();
   broadcastAppearanceSettings();
-  renderAll();
-}
-
-function setConsoleViewEnabled(enabled, broadcast = true) {
-  state.consoleViewEnabled = Boolean(enabled);
-  persistSettings();
-  if (broadcast) window.spcBoy?.setConsoleViewEnabled?.(state.consoleViewEnabled);
   renderAll();
 }
 
@@ -2059,8 +1920,9 @@ function setOptionsOpen(nextOpen) {
   }
   state.optionsOpen = nextOpen;
   if (nextOpen) {
-    state.optionsSection = "library";
-    uiApp.ui.refreshLibraryRoots().catch((error) => console.error("[SPCBoy] library roots refresh failed", error));
+    state.optionsSection = "database";
+    uiApp.ui.refreshDatabaseLocation().catch((error) => console.error("[SPCBoy] database location refresh failed", error));
+    uiApp.ui.refreshArchiveCacheSummary().catch((error) => console.error("[SPCBoy] archive cache refresh failed", error));
   }
   renderAll();
 }
@@ -2079,6 +1941,7 @@ async function bootstrap() {
   }
 
   loadSettings();
+  collapsedDatabaseConsoles = new Set(state.collapsedConsoleNames);
   state.databaseLocation = await window.spcBoy?.databaseLocation?.() || null;
   state.databaseLocationStatus = state.databaseLocation?.requiresRestart
     ? "Restart SPCBoy to use the selected database."
@@ -2088,6 +1951,7 @@ async function bootstrap() {
     enabled: state.archiveCacheEnabled,
     limitBytes: state.archiveCacheLimitBytes
   });
+  await uiApp.ui.refreshArchiveCacheSummary();
   if (window.spcBoy?.setRoutingPreferences) {
     state.routingPreferences = { ...(await window.spcBoy.setRoutingPreferences(state.routingPreferences)) };
     persistSettings();
@@ -2119,15 +1983,12 @@ async function bootstrap() {
   state.lastSelectedTrackId = state.selectedTrackId;
   state.totalSeconds = targetPlaybackSeconds();
   persistSettings();
-  if (window.spcBoy?.isOptionsWindow) {
-    await uiApp.ui.refreshLibraryRoots();
-  } else if (window.spcBoy?.databaseRoots) {
+  if (!window.spcBoy?.isOptionsWindow && window.spcBoy?.databaseRoots) {
     state.libraryRoots = await window.spcBoy.databaseRoots();
     await uiApp.ui.handleLibraryRootsChanged(state.libraryRoots);
   }
   renderAll();
   if (state.sidebarMode === "database") {
-    await loadDatabaseGames();
     const selectedGame = state.databaseGames.find((game) => databaseGameKey(game) === state.selectedDatabaseGameKey);
     if (selectedGame) {
       await loadDatabaseGame(selectedGame);
@@ -2224,7 +2085,6 @@ uiApp.ui = {
   setFontSize,
   setSidebarWidth,
   setAccentColor,
-  setConsoleViewEnabled,
   commitFontSizeInput,
   commitSidebarFontSizeInput,
   setSidebarTextColor,
