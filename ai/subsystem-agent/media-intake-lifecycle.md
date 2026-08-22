@@ -51,6 +51,5 @@
 - [media-source-discovery.js](/Users/john/Downloads/Code/SPCBoy/electron/media-source-discovery.js)
 - [playlist-archive-discovery.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-archive-discovery.js)
 - [playlist-track-inspector.js](/Users/john/Downloads/Code/SPCBoy/electron/playlist-track-inspector.js)
-- [direct-metadata-readers.js](/Users/john/Downloads/Code/SPCBoy/electron/direct-metadata-readers.js)
 - [bounded-work.js](/Users/john/Downloads/Code/SPCBoy/electron/bounded-work.js)
 - [archive-resolver.js](/Users/john/Downloads/Code/SPCBoy/electron/archive-resolver.js)

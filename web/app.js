@@ -440,17 +440,8 @@ refs.sidebarSearchInput.addEventListener("input", (event) => {
   app.ui.updateSidebarSearch(event.target.value);
 });
 
-refs.sidebarViewToggleButton.addEventListener("click", () => {
-  state.sidebarMode = state.sidebarMode === "database" ? "folders" : "database";
-  if (state.sidebarMode === "folders") state.selectedDatabaseGameKey = null;
-  app.persistSettings();
-  if (state.sidebarMode === "folders" || state.databaseGames.length || state.sidebarQuery.trim()) {
-    app.ui.updateSidebarSearch(state.sidebarQuery);
-    return;
-  }
-  app.ui.loadDatabaseGames()
-    .then(() => app.ui.updateSidebarSearch(state.sidebarQuery))
-    .catch((error) => console.error(error));
+refs.sidebarViewMenuButton.addEventListener("click", () => {
+  window.spcBoy.showSidebarViewMenu().catch((error) => console.error("[SPCBoy] sidebar view menu failed", error));
 });
 
 if (window.spcBoy?.onTransportShortcut) {
@@ -490,6 +481,10 @@ if (window.spcBoy?.onLibrarySnapshot) {
 
 if (window.spcBoy?.onLibraryCommand) {
   window.spcBoy.onLibraryCommand((command) => {
+    if (command?.type === "sidebar-view") {
+      app.ui.setSidebarMode(command.view).catch((error) => console.error("[SPCBoy] sidebar view switch failed", error));
+      return;
+    }
     if (command?.type !== "open-root") {
       return;
     }

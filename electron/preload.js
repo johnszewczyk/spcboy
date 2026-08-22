@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld("spcBoy", {
   databaseGames: () => ipcRenderer.invoke("library:database-games"),
   databaseSearchGames: (query) => ipcRenderer.invoke("library:database-search-games", query),
   databaseGameTracks: (games) => ipcRenderer.invoke("library:database-game-tracks", games),
+  databaseFiles: () => ipcRenderer.invoke("library:database-files"),
+  databaseFileTracks: (files) => ipcRenderer.invoke("library:database-file-tracks", files),
+  databaseFolderTracks: (folders) => ipcRenderer.invoke("library:database-folder-tracks", folders),
+  showSidebarViewMenu: () => ipcRenderer.invoke("library:show-sidebar-view-menu"),
   archiveCacheSummary: () => ipcRenderer.invoke("library:archive-cache-summary"),
   clearArchiveCache: () => ipcRenderer.invoke("library:archive-cache-clear"),
   configureArchiveCache: (settings) => ipcRenderer.invoke("library:archive-cache-configure", settings || {}),
@@ -51,14 +55,6 @@ contextBridge.exposeInMainWorld("spcBoy", {
   hydrateArchiveMetadata: (tracks) => ipcRenderer.invoke("playlist:hydrate-archive-metadata", tracks),
   materializeTrack: (archivePath, archiveEntry) => ipcRenderer.invoke("playlist:materialize-track", archivePath, archiveEntry),
   releaseMaterializedTrack: () => ipcRenderer.invoke("playlist:release-materialized-track"),
-  decodeTrackPcm: (trackPath, trackIndex, startMs, playMs, fadeMs, specialAudioKind, sourceName) =>
-    ipcRenderer.invoke("playlist:decode-track-pcm", trackPath, trackIndex, startMs, playMs, fadeMs, specialAudioKind, sourceName),
-  openPlaybackSession: (trackPath, trackIndex, startMs, playMs, fadeMs) =>
-    ipcRenderer.invoke("playlist:playback-session-open", trackPath, trackIndex, startMs, playMs, fadeMs),
-  readPlaybackSessionChunk: (frameCount) =>
-    ipcRenderer.invoke("playlist:playback-session-read", frameCount),
-  closePlaybackSession: () =>
-    ipcRenderer.invoke("playlist:playback-session-close"),
   nativePlaybackInit: () =>
     ipcRenderer.invoke("playback:native-init"),
   nativePlaybackLoad: (trackPath, trackIndex, startMs, playMs, fadeMs, speed) =>

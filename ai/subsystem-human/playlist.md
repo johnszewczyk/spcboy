@@ -9,7 +9,7 @@
 - Columns: all visible columns snap to their longest content when a playlist loads; double-click a header seam to snap one column again.
 - The `#` column shows the current visible line number. It does not assign track identity or create a playlist sort order.
 - Sorting: filename ascending is the default.
-- Metadata: rows queue immediately, then missing visible values may fill asynchronously in memory. Raw-folder rows use bounded direct inspections and archive rows share one materialization session. Database/archive lengths may hydrate when queued rather than waiting for playback, but SPCBoy never writes that enrichment to the MediaScanner catalog.
+- Metadata: catalog rows display the values published by MediaScanner. Raw DiskPath rows use only pathname labels; VGMBoy may supply subtrack count and playback timing, never display tags. SPCBoy never writes enrichment to the MediaScanner catalog.
 - Multi-track NSF and GBS files: each internal song appears as its own playlist row for both loose and archived sources.
 
 ## Selection

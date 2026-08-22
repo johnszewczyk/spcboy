@@ -32,8 +32,10 @@ const state = {
   rootPath: null,
   tree: [],
   sidebarQuery: "",
-  sidebarMode: "folders",
+  sidebarMode: "consoles",
   databaseGames: [],
+  databaseFiles: [],
+  databaseFileTree: [],
   databaseSearchGames: null,
   databaseSearchGeneration: 0,
   databaseSidebarError: "",
@@ -115,7 +117,7 @@ const audioEngine = {
 
 const refs = {
   sidebarSearchInput: document.getElementById("sidebar-search-input"),
-  sidebarViewToggleButton: document.getElementById("sidebar-view-toggle-button"),
+  sidebarViewMenuButton: document.getElementById("sidebar-view-menu-button"),
   databaseCollapseAllButton: document.getElementById("database-collapse-all-button"),
   databaseExpandAllButton: document.getElementById("database-expand-all-button"),
   treeRoot: document.getElementById("tree-root"),
@@ -224,7 +226,9 @@ function loadSettings() {
     state.rootPath = parsed.rootPath || null;
     state.selectedFolderPath = parsed.selectedFolderPath || null;
     state.selectedBrowserPath = parsed.selectedBrowserPath || state.selectedFolderPath;
-    state.sidebarMode = parsed.sidebarMode === "database" ? "database" : "folders";
+    state.sidebarMode = ["paths", "consoles", "diskPath"].includes(parsed.sidebarMode)
+      ? parsed.sidebarMode
+      : "consoles";
     state.selectedDatabaseGameKey = parsed.selectedDatabaseGameKey || null;
     state.collapsedConsoleNames = Array.isArray(parsed.collapsedConsoleNames)
       ? parsed.collapsedConsoleNames.filter((name) => typeof name === "string")

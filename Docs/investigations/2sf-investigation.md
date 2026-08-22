@@ -6,9 +6,9 @@ This report covers Nintendo DS 2SF and mini2SF intake, native playback, and depe
 
 ## Reference boundary
 
-CocoaSpice uses a vendored `2sf2wav` implementation derived from DeSmuME and wraps it with a C-compatible bridge. The bridge validates `_lib` through `_lib9` dependencies, reads XSF tags, recreates the DS player for seek/configuration, consumes the boot transient, and emits signed stereo 16-bit PCM at the requested sample rate.
+CocoaSpice formerly used a vendored `2sf2wav` implementation derived from DeSmuME and wrapped it with a C-compatible bridge. The current implementation and source garden are owned by VGMBoy; both CocoaSpice and SPCBoy call the VGMBoy playback core.
 
-SPCBoy stages the third-party source under `vendor/2sf2wav`, but its bridge and decoder adapter are SPCBoy-owned. The adapter is connected to the shared native worker contract used by the other active backends.
+SPCBoy no longer stages or builds `2sf2wav` locally. Its playback path calls the VGMBoy Electron bridge.
 
 ## Scanner contract
 

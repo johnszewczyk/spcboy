@@ -1,9 +1,10 @@
 const { spawn } = require("child_process");
 
 class NativeHelperClient {
-  constructor({ helperPath, spawnProcess = spawn, logError = console.error }) {
+  constructor({ helperPath, helperArguments = ["serve"], spawnProcess = spawn, logError = console.error }) {
     if (!helperPath) throw new Error("Native helper path is required.");
     this.helperPath = helperPath;
+    this.helperArguments = [...helperArguments];
     this.spawnProcess = spawnProcess;
     this.logError = logError;
     this.worker = null;
@@ -55,7 +56,7 @@ class NativeHelperClient {
     if (this.worker && !this.worker.killed) return this.worker;
 
     this.responseBuffer = Buffer.alloc(0);
-    const worker = this.spawnProcess(this.helperPath, ["serve"], {
+    const worker = this.spawnProcess(this.helperPath, this.helperArguments, {
       stdio: ["pipe", "pipe", "pipe"]
     });
     this.worker = worker;

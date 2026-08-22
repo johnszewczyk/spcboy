@@ -32,13 +32,10 @@ Human-facing behavior:
 
 Agent engineering notes:
 
-- Sister-app behavioral conformance with CocoaSpice: [cocoaspice-spcboy-conformance.md](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-conformance.md)
-- Sister-app scanner architecture, policy, and remaining validation: [cocoaspice-spcboy-scanner-investigation.md](/Users/john/Downloads/Code/DocMan/Docs/cocoaspice-spcboy-scanner-investigation.md)
 - Main shell and runtime: [gui-main-shell.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-main-shell.md), [build-runtime-bundle.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/build-runtime-bundle.md)
 - Sidebar and root ownership: [gui-sidebar-browser.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-sidebar-browser.md), [gui-sidebar-search.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-sidebar-search.md), [library-root-selection.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/library-root-selection.md), [library-browser-database.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/library-browser-database.md)
 - Shared scanner boundary and playlist media intake: [media-intake-lifecycle.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/media-intake-lifecycle.md)
 - Playlist ownership and display: [gui-playlist-core.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-playlist-core.md), [gui-playlist-columns.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-playlist-columns.md)
-- Playback streaming, transport, and timing: [audio-playback-streaming.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/audio-playback-streaming.md), [audio-playback-transport.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/audio-playback-transport.md), [audio-playback-timing.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/audio-playback-timing.md)
 - Shared playback lifecycle and transition ownership: [playback-coordinator.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/playback-coordinator.md)
 - Renderer state and persistence: [app-state-persistence.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/app-state-persistence.md)
 
@@ -48,7 +45,8 @@ Agent engineering notes:
 - `./launch.sh` stages a fresh launch bundle on every run.
 - Format admission and decoder selection are owned by the shared backend registry. Route playback work through the Playback and Audio Playback Streaming notes rather than duplicating its extension list here.
 - Persisted settings live in renderer `localStorage`.
-- Playlist metadata and playback intake route through the backend registry; MediaScanner alone owns catalog scanning. Native-session families use the native buffered transport, while OpenMPT and standard audio use the renderer-PCM chunk scheduler.
+- Playlist metadata comes from the loaded MediaScanner catalog; raw disk browsing is pathname-only.
+  Every admitted playback source uses the bundled VGMBoy bridge and its native buffered transport.
 - Nintendo DS `SWAV` and headerless raw `_NN.wav` files are admitted by the standard `.wav` playlist route and retain their special decoder kind through playback inspection.
 - Human subsystem notes describe only what users can see and do.
 - Agent subsystem notes describe only current engineering constraints and ownership facts.

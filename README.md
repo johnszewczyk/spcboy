@@ -13,15 +13,7 @@ Playback includes Native Long Play, repeat and shuffle controls, faded skips, a 
 | **UI & core** | [Electron](https://github.com/electron/electron) | macOS application shell and isolated renderer |
 |  | [Lucide](https://github.com/lucide-icons/lucide) | Interface icons |
 |  | [SQLite](https://sqlite.org/) | Persistent library and scan index |
-| **Playback** | [libgme](https://github.com/libgme/game-music-emu) | Sequenced game music, including SPC and NSF-family playback |
-|  | [libsidplayfp](https://github.com/libsidplayfp/libsidplayfp) | Commodore 64 SID playback |
-|  | [libvgm](https://github.com/ValleyBell/libvgm) | VGM, VGZ, GYM, and S98 playback |
-|  | [vgmstream](https://github.com/vgmstream/vgmstream) | Streamed game audio, including PlayStation, PS2/PS3, and PSP sources (r2117) |
-|  | [lazyusf2](https://gitlab.com/kode54/lazyusf2) | Nintendo 64 USF playback |
-|  | [mGBA / Highly Complete](https://github.com/mgba-emu/mgba) | Game Boy Advance GSF playback |
-|  | [2sf2wav / DeSmuME](https://bitbucket.org/ahigerd/2sf2wav) | Nintendo DS 2SF playback |
-|  | [Play!](https://github.com/jpd002/Play-) | PlayStation PSF and PSF2 playback |
-|  | [libopenmpt](https://lib.openmpt.org/libopenmpt/) and [FFmpeg](https://ffmpeg.org/) | Module/tracker and standard-audio playback |
+| **Playback** | [VGMBoy](https://github.com/johnszewczyk/VGMBoy) | The sole bundled decoder, transport, EQ, and macOS audio-output core. Its README has the exhaustive upstream plugin list and versions. |
 | **Library & archives** | [libarchive](https://libarchive.org/), [7-Zip](https://www.7-zip.org/), and [Zstandard](https://github.com/facebook/zstd) | Archive listing and disposable materialization |
 
 See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for licenses and attribution.

@@ -154,7 +154,7 @@ function ensureExpandedToSelection(tree = state.tree, selectedPath = state.selec
 function isNodeExpanded(node) {
   // The active filesystem root is the Folder View anchor. It must remain
   // expanded so folding descendants can never make the browser disappear.
-  if (node.path === state.rootPath) return true;
+  if (node.path === state.rootPath || node.alwaysExpanded) return true;
   if (state.sidebarQuery.trim()) {
     return true;
   }
@@ -178,7 +178,27 @@ async function loadBrowserChildren(node) {
   node.childrenLoaded = true;
 }
 
+function catalogPlaylistSelection(rows, selectedPath) {
+  return {
+    selectedFolderPath: selectedPath,
+    selectedBrowserPath: state.selectedBrowserPath,
+    playlist: databaseRowsToPlaylistTracks(rows, [])
+  };
+}
+
 async function loadBrowserSelection(node) {
+  if (node.catalogFile) {
+    return catalogPlaylistSelection(
+      await window.spcBoy.databaseFileTracks([node.catalogFile]),
+      node.catalogFile.path
+    );
+  }
+  if (node.catalogFolder) {
+    return catalogPlaylistSelection(
+      await window.spcBoy.databaseFolderTracks([node.catalogFolder]),
+      node.catalogFolder.folderPath
+    );
+  }
   return node.kind === "folder"
     ? window.spcBoy.selectFolder(node.path)
     : window.spcBoy.selectFile(node.path);
@@ -218,8 +238,9 @@ function showSidebarContextMenu(node, event) {
   state.selectedBrowserPath = node.path;
   persistSettings();
   syncTreeSelection();
+  const finderPath = node.catalogFile?.path || node.catalogFolder?.folderPath || node.path;
   showContextMenu(event, [
-    ["Show in Finder", async () => window.spcBoy.showInFinder(node.path)],
+    ["Show in Finder", async () => window.spcBoy.showInFinder(finderPath)],
     ["Play Now", async () => activateBrowserNode(node)],
     ["Queue", async () => queueBrowserNode(node)]
   ]);
@@ -289,7 +310,7 @@ function moveBrowserSelection(delta) {
 
 function jumpFocusedListToEdge(toEnd, focused = document.activeElement) {
   if (refs.treeRoot.contains(focused)) {
-    if (currentSidebarView().contentMode === "folders") {
+    if (currentSidebarView().contentMode === "tree") {
       const nodes = visibleBrowserNodes();
       if (nodes.length) selectBrowserNode(nodes[toEnd ? nodes.length - 1 : 0], { focus: true });
       return true;
@@ -408,7 +429,7 @@ document.addEventListener("keydown", (event) => {
 function filteredTree() {
   const query = state.sidebarQuery.trim().toLowerCase();
   if (!query) {
-    return state.tree;
+    return currentSidebarView().view === "paths" ? state.databaseFileTree : state.tree;
   }
 
   function filterNode(node) {
@@ -422,8 +443,67 @@ function filteredTree() {
     return null;
   }
 
-  const localMatches = state.tree.map(filterNode).filter(Boolean);
+  const sourceTree = currentSidebarView().view === "paths" ? state.databaseFileTree : state.tree;
+  const localMatches = sourceTree.map(filterNode).filter(Boolean);
   return localMatches;
+}
+
+const sidebarNaturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function buildCatalogFileTree(files) {
+  const roots = new Map();
+  const nodeFor = (parent, key, makeNode) => {
+    let child = parent.childrenByKey.get(key);
+    if (!child) {
+      child = makeNode();
+      parent.childrenByKey.set(key, child);
+      parent.children.push(child);
+    }
+    return child;
+  };
+
+  for (const file of files) {
+    const rootKey = `${file.rootId}\u0000${file.rootPath}`;
+    let root = roots.get(rootKey);
+    if (!root) {
+      root = {
+        kind: "folder", path: `catalog-root:${rootKey}`, name: file.rootName || file.rootPath,
+        alwaysExpanded: true, childrenLoaded: true, children: [], childrenByKey: new Map(),
+        catalogFolder: { rootId: file.rootId, folderPath: file.rootPath }
+      };
+      roots.set(rootKey, root);
+    }
+    const relativeFolder = String(file.folderPath || "").startsWith(file.rootPath)
+      ? String(file.folderPath).slice(file.rootPath.length).replace(/^\/+/, "")
+      : "";
+    let parent = root;
+    let absoluteFolder = file.rootPath;
+    for (const segment of relativeFolder.split("/").filter(Boolean)) {
+      absoluteFolder = `${absoluteFolder.replace(/\/$/, "")}/${segment}`;
+      const parentPath = absoluteFolder;
+      parent = nodeFor(parent, `folder:${parentPath}`, () => ({
+        kind: "folder", path: `catalog-folder:${file.rootId}:${parentPath}`, name: segment,
+        childrenLoaded: true, children: [], childrenByKey: new Map(),
+        catalogFolder: { rootId: file.rootId, folderPath: parentPath }
+      }));
+    }
+    const filename = String(file.path || "").split("/").pop() || file.path;
+    nodeFor(parent, `file:${file.path}`, () => ({
+      kind: "file", path: `catalog-file:${file.rootId}:${file.path}`, name: filename,
+      childrenLoaded: true, children: [], catalogFile: file
+    }));
+  }
+
+  const sortNode = (node) => {
+    node.children.sort((left, right) => (left.kind === right.kind ? 0 : left.kind === "folder" ? -1 : 1)
+      || sidebarNaturalCollator.compare(left.name, right.name));
+    node.children.forEach(sortNode);
+    delete node.childrenByKey;
+  };
+  const tree = [...roots.values()];
+  tree.sort((left, right) => sidebarNaturalCollator.compare(left.name, right.name));
+  tree.forEach(sortNode);
+  return tree;
 }
 
 function renderTree() {
@@ -437,9 +517,11 @@ function renderTree() {
   if (visibleTree.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty sidebar-empty";
-    empty.textContent = state.rootPath
-      ? "No subfolders match this view."
-      : "Open a supported music library folder to populate the sidebar.";
+    empty.textContent = currentSidebarView().view === "paths"
+      ? "No catalog paths match this view."
+      : state.rootPath
+        ? "No subfolders match this view."
+        : "Choose Open Path to browse a local folder.";
     refs.treeRoot.appendChild(empty);
     scheduleSelectionIndicators();
     return;
@@ -542,7 +624,7 @@ function renderDatabaseGames() {
       groupedGames.set(consoleName, games);
     }
     databaseGameButtons = [];
-    [...groupedGames.keys()].sort((left, right) => left.localeCompare(right)).forEach((consoleName) => {
+    [...groupedGames.keys()].sort((left, right) => sidebarNaturalCollator.compare(left, right)).forEach((consoleName) => {
       const group = document.createElement("div");
       group.className = "database-console-group";
       const heading = document.createElement("button");
@@ -642,7 +724,9 @@ async function setAllSidebarNodesCollapsed(collapsed) {
 
   if (collapsed) {
     expandedFolders.clear();
-    state.selectedBrowserPath = state.rootPath;
+    state.selectedBrowserPath = currentSidebarView().view === "paths"
+      ? state.databaseFileTree[0]?.path || null
+      : state.rootPath;
     persistSettings();
     renderTree();
     syncTreeSelection();
@@ -652,7 +736,7 @@ async function setAllSidebarNodesCollapsed(collapsed) {
   async function expandFolder(node) {
     if (node.kind !== "folder") return;
     expandedFolders.add(node.path);
-    await loadBrowserChildren(node);
+    if (currentSidebarView().view !== "paths") await loadBrowserChildren(node);
     await Promise.all(node.children.filter((child) => child.kind === "folder").map(expandFolder));
   }
   await Promise.all(state.tree.map(expandFolder));
@@ -663,6 +747,30 @@ async function setAllSidebarNodesCollapsed(collapsed) {
 async function loadDatabaseGames() {
   await refreshDatabaseGamesForVisibleRoots();
   renderAll();
+}
+
+async function loadDatabaseFiles() {
+  try {
+    state.databaseFiles = await window.spcBoy.databaseFiles();
+    state.databaseFileTree = buildCatalogFileTree(state.databaseFiles);
+    state.databaseSidebarError = "";
+  } catch (error) {
+    reportDatabaseSidebarError("read the catalog paths", error);
+    throw error;
+  }
+}
+
+async function setSidebarMode(mode) {
+  if (!["paths", "consoles", "diskPath"].includes(mode)) return;
+  state.sidebarMode = mode;
+  state.sidebarQuery = "";
+  refs.sidebarSearchInput.value = "";
+  state.databaseSearchGames = null;
+  if (mode === "paths" && !state.databaseFiles.length) await loadDatabaseFiles();
+  if (mode === "consoles" && !state.databaseGames.length) await loadDatabaseGames();
+  persistSettings();
+  renderAll();
+  syncTreeSelection();
 }
 
 async function refreshDatabaseGamesForVisibleRoots() {
@@ -731,7 +839,6 @@ function databaseRowsToPlaylistTracks(rows, games) {
     sourceFilename: row.filename,
     trackIndex: Number(row.trackIndex) || 0,
     trackCount: Math.max(1, Number(row.trackCount) || 1),
-    specialAudioKind: row.specialAudioKind || null,
     archivePath: row.archivePath || null,
     archiveEntry: row.archiveEntry || null,
     fileSize: Number(row.fileSize) || 0,
@@ -827,12 +934,12 @@ async function activateFocusedItem(focusTarget = document.activeElement) {
 }
 
 function renderSidebar() {
-  const showDatabase = currentSidebarView().contentMode === "database";
-  const nextMode = state.sidebarMode === "database" ? "folders" : "database";
-  refs.sidebarViewToggleButton.title = nextMode === "database" ? "Show Database" : "Show Folders";
-  refs.sidebarViewToggleButton.setAttribute("aria-label", refs.sidebarViewToggleButton.title);
-  refs.sidebarViewToggleButton.querySelector("use")?.setAttribute("href", nextMode === "database" ? "#icon-database" : "#icon-folder-tree");
-  if (showDatabase) renderDatabaseGames();
+  const view = currentSidebarView();
+  const title = view.view === "paths" ? "Catalog Paths" : view.view === "diskPath" ? "Disk Path" : "Catalog Consoles";
+  refs.sidebarViewMenuButton.title = `Choose sidebar view (currently ${title})`;
+  refs.sidebarViewMenuButton.setAttribute("aria-label", refs.sidebarViewMenuButton.title);
+  refs.sidebarViewMenuButton.classList.toggle("is-selected", true);
+  if (view.contentMode === "database") renderDatabaseGames();
   else renderTree();
 }
 
@@ -1568,7 +1675,6 @@ function applyTrackInspection(target, inspection) {
   target.system = inspection.metadata.system || target.system;
   target.lengthLabel = inspection.lengthLabel;
   target.basePlaybackSeconds = inspection.basePlaybackSeconds;
-  target.specialAudioKind = inspection.specialAudioKind || target.specialAudioKind || null;
   target.metadataLoaded = true;
   scheduleMetadataRefresh(target.id);
   return target;
@@ -1988,7 +2094,7 @@ async function bootstrap() {
     await uiApp.ui.handleLibraryRootsChanged(state.libraryRoots);
   }
   renderAll();
-  if (state.sidebarMode === "database") {
+  if (state.sidebarMode === "consoles") {
     const selectedGame = state.databaseGames.find((game) => databaseGameKey(game) === state.selectedDatabaseGameKey);
     if (selectedGame) {
       await loadDatabaseGame(selectedGame);
@@ -2012,7 +2118,7 @@ async function openLibraryRoot() {
 function applyLibrarySnapshot(snapshot) {
   playlistLoadGeneration += 1;
   Object.assign(state, snapshot);
-  state.sidebarMode = "folders";
+  state.sidebarMode = "diskPath";
   state.sidebarQuery = "";
   state.selectedDatabaseGameKey = null;
   refs.sidebarSearchInput.value = "";
@@ -2103,6 +2209,8 @@ uiApp.ui = {
   setAllDatabaseConsolesCollapsed,
   setAllSidebarNodesCollapsed,
   refreshDatabaseGamesForVisibleRoots,
+  loadDatabaseFiles,
+  setSidebarMode,
   updateSidebarSearch,
   loadDatabaseGames,
   loadDatabaseGame,

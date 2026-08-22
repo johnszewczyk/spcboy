@@ -27,7 +27,7 @@ class FakeWorker extends EventEmitter {
 test("native helper client reconstructs framed responses and coalesces state requests", async () => {
   const worker = new FakeWorker();
   const client = new NativeHelperClient({
-    helperPath: "/tmp/libgme-tool",
+    helperPath: "/tmp/vgmboy-electron-bridge",
     spawnProcess: () => worker,
     logError: () => {}
   });
@@ -50,7 +50,7 @@ test("native helper client reconstructs framed responses and coalesces state req
 test("native helper client rejects an error response for its matching command", async () => {
   const worker = new FakeWorker();
   const client = new NativeHelperClient({
-    helperPath: "/tmp/libgme-tool",
+    helperPath: "/tmp/vgmboy-electron-bridge",
     spawnProcess: () => worker,
     logError: () => {}
   });
@@ -64,7 +64,7 @@ test("native helper client rejects an error response for its matching command", 
 test("native helper client rejects a malformed framed response without desynchronizing", async () => {
   const worker = new FakeWorker();
   const client = new NativeHelperClient({
-    helperPath: "/tmp/libgme-tool",
+    helperPath: "/tmp/vgmboy-electron-bridge",
     spawnProcess: () => worker,
     logError: () => {}
   });

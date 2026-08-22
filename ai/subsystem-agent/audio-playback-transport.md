@@ -23,7 +23,7 @@
 
 - Keep transport behavior aligned across renderer controls, Electron shortcuts, and Media Session.
 - Keep progress-slider seeking aligned with helper playback state.
-- If helper transport commands change, update the renderer and Electron bridge together.
+- If helper transport commands change, update the renderer and the bundled VGMBoy bridge together. `player-ramp-gain` is the core-owned queued-skip output ramp; do not replace it with Web Audio gain automation.
 
 ## Files
 

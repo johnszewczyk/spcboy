@@ -2,16 +2,18 @@
 
 ## Scope
 
-- Recursive folder tree.
+- Catalog Paths tree, Consoles index, and Disk Path tree.
 - Folder selection.
 - Tree expansion and selection visibility.
 
 ## Ownership and Invariants
 
-- The sidebar tree is a lazy file browser: the current root is the top-level node, folders load their immediate children when expanded, and supported files appear as file nodes beneath their parent.
-- Opening or dropping a path explicitly selects the Folders view and clears a persisted Database-view selection so the raw folder browser is visible.
-- One sidebar toolbar button toggles the stored Folders/Database mode and changes its icon to the destination view. A non-empty search remains visually authoritative until cleared.
-- The Folders snapshot enumerates immediate directories and supported files without metadata inspection; selecting a folder for activation lists only its direct supported files and archive members.
+- Paths reads MediaScanner's indexed `file_sidebar_buckets` into an in-memory tree. It is never a filesystem enumeration.
+- Consoles reads the compact catalog game index and groups rows under console headings.
+- Disk Path is the lazy raw file browser: the current local root is the top-level node, folders load their immediate children when expanded, and supported files appear beneath their parent.
+- Opening or dropping a path explicitly selects Disk Path so the raw browser is visible.
+- The sidebar view icon opens a native menu for Paths, Consoles, and Disk Path. The application Sidebar menu binds those views to Command-1, Command-2, and Command-3; File > Open Path remains Command-O.
+- The Disk Path snapshot enumerates immediate directories and supported files without metadata inspection; selecting a folder for activation lists only its direct supported files and archive members.
 - Hidden dot-folders are skipped.
 - A single click on a folder selects and toggles only its disclosure state. A single click on a final leaf file/archive replaces the playlist with that leaf's playable content, without starting playback.
 - Double-clicking or pressing Enter on a folder sends that folder's direct supported contents to the playlist; doing so on a file sends that file (or archive's playable members) to the playlist.
@@ -32,7 +34,9 @@
 - Treat a branch click as browser selection/folding only. A final leaf click previews its playable content; only double-click, Enter, or an explicit context action starts playback.
 - Keep playlist scope per selected folder unless the app explicitly changes that model.
 - Keep tree rendering aligned with the renderer-owned in-memory tree shape.
-- Console grouping uses only the already-loaded root-scoped database game rows; it must not trigger another database query. Sidebar matching uses the loaded game title and compact root name, not live filesystem work.
+- Console grouping uses only the already-loaded root-scoped catalog game rows; it must not trigger another database query. Sidebar matching uses the loaded game title and compact root name, not live filesystem work.
+- Paths activation queries stored source identities by `root_id + path`; folder activation queries only descendant source identities. Neither path may fall back to a live scan.
+- Apply numeric-aware comparison to visible catalog and path segments. SQLite's lexical order is not the UI ordering contract.
 - Keep console-group row construction separate from archive playlist hydration; changing a database view must not materialize archive members.
 
 ## Files

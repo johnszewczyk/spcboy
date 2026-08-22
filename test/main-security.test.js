@@ -3,13 +3,15 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-test("main process owns one runtime and exposes only a canonical catalog reader", () => {
+test("main process owns one runtime and exposes only the shared Swift catalog reader", () => {
   const mainSource = fs.readFileSync(path.join(__dirname, "..", "electron", "main.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(__dirname, "..", "electron", "preload.js"), "utf8");
   const rendererSource = fs.readFileSync(path.join(__dirname, "..", "web", "app-library.js"), "utf8");
 
   assert.match(mainSource, /requestSingleInstanceLock\(\)/);
-  assert.match(mainSource, /new CanonicalLibraryReader\(configuredLibraryDatabasePath\(\)\)/);
+  assert.match(mainSource, /createCatalogReader\(configuredLibraryDatabasePath\(\)\)/);
+  assert.match(mainSource, /CatalogReaderClient/);
+  assert.doesNotMatch(mainSource, /CanonicalLibraryReader/);
   assert.doesNotMatch(mainSource, /require\("\.\/library-scan-service"\)/);
   assert.doesNotMatch(mainSource, /library:database-(?:scan|trim-missing|clear|purge-unlinked|remove-root|set-root|move-root)/);
   assert.doesNotMatch(mainSource, /libraryDatabase\.loadRoot\(rootId\)/);
@@ -29,13 +31,14 @@ test("window focus raises only the requested window and sidebar search is mode i
   const focusHelper = mainSource.match(/function bringAppWindowsToFront[\s\S]*?\n}\n\nasync function openOptionsWindow/)?.[0] || "";
   assert.match(focusHelper, /const focusedWindow = preferredWindow/);
   assert.doesNotMatch(focusHelper, /for \(const window of/);
-  assert.match(rendererSource, /const showDatabase = currentSidebarView\(\)\.contentMode === "database"/);
-  assert.match(rendererSource, /if \(currentSidebarView\(\)\.contentMode === "folders"\)/);
+  assert.match(rendererSource, /const view = currentSidebarView\(\);/);
+  assert.match(rendererSource, /view\.contentMode === "database"/);
+  assert.match(rendererSource, /currentSidebarView\(\)\.contentMode === "tree"/);
   assert.match(appSource, /sidebarViewState\.resolve\(state\.sidebarMode, state\.sidebarQuery\)\.contentMode === "database"/);
   assert.match(rendererSource, /databaseSearchGames\(requestedQuery\)/);
   assert.doesNotMatch(markup, /id="sidebar-folder-mode-button"/);
   assert.doesNotMatch(markup, /id="sidebar-database-mode-button"/);
-  assert.match(markup, /id="sidebar-view-toggle-button"/);
+  assert.match(markup, /id="sidebar-view-menu-button"/);
 });
 
 test("playlist number column is a display-only line count", () => {

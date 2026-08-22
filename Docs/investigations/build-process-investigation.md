@@ -18,5 +18,3 @@ The launch bundle is still staged into `/tmp/SPCBoy-launch-bundle` on each start
 
 - [launch.sh](/Users/john/Downloads/Code/SPCBoy/launch.sh)
 - [ai/subsystem-agent/build-runtime-bundle.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/build-runtime-bundle.md)
-- [scripts/build-mgba-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-mgba-helper.sh)
-- [scripts/build-libgme-helper.sh](/Users/john/Downloads/Code/SPCBoy/scripts/build-libgme-helper.sh)

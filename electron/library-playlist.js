@@ -25,7 +25,6 @@ function createPlaylistReader({ fs, path, supportsPath, routeForPath = () => nul
       system: inspection?.metadata?.system || (extension === ".spc" ? "SNES" : "SEGA"),
       lengthLabel: inspection?.lengthLabel || "—",
       basePlaybackSeconds: Number(inspection?.basePlaybackSeconds) || 0,
-      specialAudioKind: inspection?.specialAudioKind || null,
       metadataLoaded: Boolean(inspection)
     };
   }

@@ -40,26 +40,30 @@ test("routes PlayStation 2, PSP, and PlayStation 3 streamed formats to vgmstream
   }
 });
 
-test("keeps each registered PlayStation streamed extension in the native helper route", () => {
-  const source = fs.readFileSync(path.join(__dirname, "..", "native", "libgme_tool.c"), "utf8");
+test("routes each registered PlayStation streamed extension through the bundled VGMBoy bridge", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "electron", "native-audio-tools.js"), "utf8");
   const vgmstream = BACKEND_MODULES.find((backend) => backend.id === "vgmstream");
   for (const extension of vgmstream.extensions) {
-    assert.ok(source.includes(`"${extension}"`), extension);
+    assert.equal(supportsNativePlayback(`track${extension}`), true, extension);
   }
+  assert.match(source, /VGMBoy_ELECTRON_BRIDGE_NAME/);
+  assert.doesNotMatch(source, /decode-raw|session-open|ffmpeg/);
 });
 
-test("routes module and standard audio files to renderer PCM", () => {
+test("routes VGMBoy-covered modules and standard audio to the native session", () => {
   assert.equal(backendForPath("track.xm").id, "openmpt");
   assert.equal(backendForPath("track.flac").id, "standard-audio");
   assert.equal(backendForPath("track.aac").id, "standard-audio");
   assert.equal(backendForPath("track.mp2").id, "standard-audio");
   assert.equal(backendForPath("track.tak").id, "standard-audio");
-  assert.equal(playbackModeForPath("track.wav"), "renderer-pcm");
+  assert.equal(playbackModeForPath("track.xm"), "native-session");
+  assert.equal(playbackModeForPath("track.wav"), "native-session");
+  assert.equal(playbackModeForPath("track.tak"), "native-session");
 });
 
 test("declares one playback mode for every registered backend", () => {
   for (const backend of BACKEND_MODULES) {
-    assert.ok(["native-session", "renderer-pcm"].includes(backend.playbackMode), backend.id);
+    assert.equal(backend.playbackMode, "native-session", backend.id);
     for (const extension of backend.extensions) {
       assert.equal(playbackModeForPath(`track${extension}`), backend.playbackMode, extension);
     }
@@ -137,7 +141,7 @@ test("renderer playback scheduling consumes the preload registry without a dupli
   vm.runInNewContext(source, { window });
 
   assert.equal(window.SPCBoyPlaybackBackends.forPath("archive/track.vgz").id, "libvgm");
-  assert.equal(window.SPCBoyPlaybackBackends.forPath("archive/track.xm").playbackMode, "renderer-pcm");
+  assert.equal(window.SPCBoyPlaybackBackends.forPath("archive/track.xm").playbackMode, "native-session");
   assert.deepEqual(JSON.parse(JSON.stringify(window.SPCBoyPlaybackBackends.conflicts)), []);
   assert.deepEqual(
     JSON.parse(JSON.stringify(window.SPCBoyPlaybackBackends.all)),

@@ -12,7 +12,7 @@ Its vgmstream bridge opens a streamfile, selects a 1-based subsong, exposes stre
 
 ## SPCBoy boundary
 
-SPCBoy stages the CocoaSpice vgmstream snapshot under `vendor/vgmstream` and builds a static `libvgmstream` with FFmpeg and Vorbis support. The SPCBoy bridge will own streamfile/decoder lifetime and adapt vgmstream’s subsong/sample clock to `native_decoder.h`; the realtime Core Audio callback will remain decoder-free.
+VGMBoy owns the vgmstream snapshot under its shared `vendor/vgmstream` garden and builds the static `libvgmstream` library with FFmpeg and Vorbis support. SPCBoy calls the VGMBoy Electron bridge; streamfile/decoder lifetime and the realtime-safe transport remain core responsibilities.
 
 The scanner must keep dependency-backed forms (`hd`, `hbd`, `iecs`, `txtp`) separate from ordinary selected-entry extraction. A `.txtp` may reference sibling assets, so archive materialization cannot copy only the selected member.
 

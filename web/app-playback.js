@@ -18,103 +18,20 @@ let nativeStatePollTimer = 0;
 let nativePlaybackInitialized = false;
 let mediaSessionHandlersBound = false;
 let finalizePlaybackPromise = null;
-let vgmAudioContext = null;
-let vgmAudioSources = new Set();
-let vgmAudioStartedAt = 0;
-let vgmAudioOffset = 0;
-let vgmAudioGeneration = 0;
-let vgmAudioTrack = null;
-let vgmAudioNextDecodeSeconds = 0;
-let vgmAudioNextStartTime = 0;
-let vgmAudioTotalSeconds = 0;
-let vgmMasterGain = null;
-let vgmTransportGain = null;
-let vgmEqualizerNodes = [];
 const playbackCoordinator = window.SPCBoyPlaybackCoordinator;
 const playbackBackends = window.SPCBoyPlaybackBackends;
-let vgmAudioDecoding = false;
-let vgmProgressTimer = 0;
 let queuedSkipRequest = null;
 let queuedSkipTimer = 0;
 let playbackWindow = null;
-const VGM_DECODE_CHUNK_SECONDS = 10;
 const TRANSPORT_DECLICK_MS = 10;
-
-function isRenderedDecoderTrack(track) {
-  if (track?.specialAudioKind) return true;
-  return playbackBackends.forPath(track?.archiveEntry || track?.path)?.playbackMode === "renderer-pcm";
-}
-
-function stopVgmAudio() {
-  vgmAudioGeneration += 1;
-  if (vgmProgressTimer) {
-    window.clearInterval(vgmProgressTimer);
-    vgmProgressTimer = 0;
-  }
-  for (const source of vgmAudioSources) {
-    try { source.stop(); } catch {}
-    source.disconnect();
-  }
-  vgmAudioSources.clear();
-  vgmAudioTrack = null;
-  vgmAudioDecoding = false;
-  vgmAudioOffset = 0;
-}
-
-function ensureRendererAudioGraph() {
-  if (!vgmAudioContext) return;
-  if (vgmMasterGain) return;
-  vgmMasterGain = vgmAudioContext.createGain();
-  let previous = null;
-  vgmEqualizerNodes = playbackApp.EQUALIZER_BAND_FREQUENCIES.map((frequency) => {
-    const node = vgmAudioContext.createBiquadFilter();
-    node.type = "peaking";
-    node.frequency.value = frequency;
-    node.Q.value = 1.414;
-    if (previous) previous.connect(node);
-    previous = node;
-    return node;
-  });
-  previous?.connect(vgmMasterGain);
-  vgmTransportGain = vgmAudioContext.createGain();
-  vgmMasterGain.connect(vgmTransportGain);
-  vgmTransportGain.connect(vgmAudioContext.destination);
-  applyRendererAudioSettings();
-}
-
-function applyRendererAudioSettings() {
-  if (!vgmMasterGain) return;
-  vgmMasterGain.gain.value = playbackApp.state.appVolume;
-  vgmEqualizerNodes.forEach((node, index) => {
-    node.gain.value = playbackApp.state.equalizerEnabled ? playbackApp.state.equalizerBandGains[index] : 0;
-  });
-}
 
 function waitForAudioEnvelope(durationMs) {
   return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Math.ceil(durationMs))));
 }
 
-function startRendererTransportGain(startAt) {
-  if (!vgmTransportGain || !vgmAudioContext) return;
-  const gain = vgmTransportGain.gain;
-  gain.cancelScheduledValues(startAt);
-  gain.setValueAtTime(0, startAt);
-  gain.linearRampToValueAtTime(1, startAt + TRANSPORT_DECLICK_MS / 1000);
-}
-
-function fadeRendererTransportGain(durationMs) {
-  if (!vgmTransportGain || !vgmAudioContext) return;
-  const now = vgmAudioContext.currentTime;
-  const gain = vgmTransportGain.gain;
-  gain.cancelScheduledValues(now);
-  gain.setValueAtTime(gain.value, now);
-  gain.linearRampToValueAtTime(0, now + Math.max(1, durationMs) / 1000);
-}
-
 async function fadeActiveOutput(durationMs = TRANSPORT_DECLICK_MS) {
   const activeTrack = activeTrackInfo();
-  if (vgmAudioSources.size) fadeRendererTransportGain(durationMs);
-  if (nativePlaybackInitialized && activeTrack && !isRenderedDecoderTrack(activeTrack)) {
+  if (nativePlaybackInitialized && activeTrack) {
     try {
       await window.spcBoy.nativePlaybackRampGain?.(0, durationMs);
     } catch {
@@ -135,143 +52,6 @@ function setAudioSettings(settings = {}) {
   if (settings.appVolume !== undefined) playbackApp.state.appVolume = playbackApp.normalizeAppVolume(settings.appVolume);
   if (typeof settings.equalizerEnabled === "boolean") playbackApp.state.equalizerEnabled = settings.equalizerEnabled;
   if (Array.isArray(settings.equalizerBandGains)) playbackApp.state.equalizerBandGains = settings.equalizerBandGains.map(playbackApp.normalizeEqualizerGain);
-  applyRendererAudioSettings();
-}
-
-function stopVgmAudioPreservingOffset() {
-  vgmAudioGeneration += 1;
-  if (vgmProgressTimer) {
-    window.clearInterval(vgmProgressTimer);
-    vgmProgressTimer = 0;
-  }
-  for (const source of vgmAudioSources) {
-    try { source.stop(); } catch {}
-    source.disconnect();
-  }
-  vgmAudioSources.clear();
-  vgmAudioTrack = null;
-  vgmAudioDecoding = false;
-}
-
-function pcmBufferToAudioBuffer(pcm, startSeconds, requestedDurationSeconds, totalSeconds, fadeSeconds, allowEmpty) {
-  if (!ArrayBuffer.isView(pcm)) {
-    throw new Error("renderer decoder returned an invalid PCM buffer");
-  }
-  const byteLength = pcm.byteLength - (pcm.byteLength % 2);
-  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, byteLength / 2);
-  const inputFrames = Math.floor(samples.length / 2);
-  const requestedFrames = Math.max(1, Math.round(requestedDurationSeconds * 44100));
-  if (!inputFrames && !allowEmpty) {
-    throw new Error("renderer decoder returned an empty PCM buffer before end of track");
-  }
-  const frames = requestedFrames;
-  const buffer = vgmAudioContext.createBuffer(2, frames, 44100);
-  const left = buffer.getChannelData(0);
-  const right = buffer.getChannelData(1);
-  const copiedFrames = Math.min(inputFrames, frames);
-  for (let index = 0; index < copiedFrames; index += 1) {
-    left[index] = samples[index * 2] / 32768;
-    right[index] = samples[index * 2 + 1] / 32768;
-  }
-  const fadeStartSeconds = Math.max(0, totalSeconds - fadeSeconds);
-  if (fadeSeconds > 0) {
-    for (let index = 0; index < frames; index += 1) {
-      const absoluteSeconds = startSeconds + index / 44100;
-      if (absoluteSeconds < fadeStartSeconds) continue;
-      const gain = Math.max(0, Math.min(1, (totalSeconds - absoluteSeconds) / fadeSeconds));
-      left[index] *= gain;
-      right[index] *= gain;
-    }
-  }
-  return buffer;
-}
-
-async function decodeVgmChunk(track, startSeconds, durationSeconds) {
-  const totalSeconds = effectiveTotalSeconds(track);
-  const fadeSeconds = playbackWindow?.trackId === track?.id
-    ? Math.max(0, Number(playbackWindow.fadeSeconds) || 0)
-    : currentFadeSeconds(track);
-  const pcm = await window.spcBoy.decodeTrackPcm(
-    track.path,
-    track.trackIndex || 0,
-    Math.round(startSeconds * 1000),
-    Math.max(1, Math.round(durationSeconds * 1000)),
-    0,
-    track.specialAudioKind || null,
-    track.sourceFilename || track.filename || null
-  );
-  const baseSeconds = Math.max(0, Number(track.basePlaybackSeconds) || 0);
-  const allowEmpty = baseSeconds > 0 && startSeconds >= Math.max(0, baseSeconds - 0.05);
-  return pcmBufferToAudioBuffer(pcm, startSeconds, durationSeconds, totalSeconds, fadeSeconds, allowEmpty);
-}
-
-function scheduleVgmChunk(buffer, startSeconds, generation) {
-  if (generation !== vgmAudioGeneration) return 0;
-  const durationSeconds = buffer.duration;
-  const source = vgmAudioContext.createBufferSource();
-  source.buffer = buffer;
-  ensureRendererAudioGraph();
-  source.connect(vgmEqualizerNodes[0] || vgmMasterGain || vgmAudioContext.destination);
-  const startAt = Math.max(vgmAudioContext.currentTime + 0.03, vgmAudioNextStartTime);
-  source.onended = () => {
-    vgmAudioSources.delete(source);
-    source.disconnect();
-    if (generation !== vgmAudioGeneration) return;
-    if (!vgmAudioSources.size && !vgmAudioDecoding && vgmAudioNextDecodeSeconds >= vgmAudioTotalSeconds) {
-      void finalizePlaybackEnded();
-    }
-  };
-  vgmAudioSources.add(source);
-  if (!vgmAudioStartedAt) startRendererTransportGain(startAt);
-  source.start(startAt);
-  if (!vgmAudioStartedAt) vgmAudioStartedAt = startAt;
-  vgmAudioNextStartTime = startAt + durationSeconds;
-  return durationSeconds;
-}
-
-async function queueVgmChunks(track, generation) {
-  if (vgmAudioDecoding) return;
-  vgmAudioDecoding = true;
-  try {
-    while (generation === vgmAudioGeneration && vgmAudioNextDecodeSeconds < vgmAudioTotalSeconds) {
-      const startSeconds = vgmAudioNextDecodeSeconds;
-      const durationSeconds = Math.min(VGM_DECODE_CHUNK_SECONDS, vgmAudioTotalSeconds - startSeconds);
-      const buffer = await decodeVgmChunk(track, startSeconds, durationSeconds);
-      if (generation !== vgmAudioGeneration) return;
-      const scheduledDuration = scheduleVgmChunk(buffer, startSeconds, generation);
-      vgmAudioNextDecodeSeconds += scheduledDuration;
-    }
-  } finally {
-    if (generation === vgmAudioGeneration) vgmAudioDecoding = false;
-  }
-}
-
-async function playVgmAudio(track, startSeconds) {
-  stopVgmAudio();
-  vgmAudioContext ||= new AudioContext({ sampleRate: 44100 });
-  ensureRendererAudioGraph();
-  await vgmAudioContext.resume();
-  const generation = vgmAudioGeneration;
-  vgmAudioTrack = track;
-  vgmAudioTotalSeconds = effectiveTotalSeconds(track);
-  vgmAudioNextDecodeSeconds = startSeconds;
-  vgmAudioNextStartTime = vgmAudioContext.currentTime + 0.03;
-  vgmAudioStartedAt = 0;
-  const firstDuration = Math.min(VGM_DECODE_CHUNK_SECONDS, vgmAudioTotalSeconds - startSeconds);
-  const firstBuffer = await decodeVgmChunk(track, startSeconds, firstDuration);
-  if (generation !== vgmAudioGeneration) return;
-  scheduleVgmChunk(firstBuffer, startSeconds, generation);
-  vgmAudioNextDecodeSeconds = startSeconds + firstBuffer.duration;
-  vgmAudioOffset = startSeconds;
-  vgmProgressTimer = window.setInterval(() => {
-    if (generation !== vgmAudioGeneration || !vgmAudioContext || !state.isPlaying) return;
-    state.elapsedSeconds = playbackCoordinator.clampPosition(
-      vgmAudioOffset + Math.max(0, vgmAudioContext.currentTime - vgmAudioStartedAt),
-      vgmAudioTotalSeconds
-    );
-    updatePlaybackReadout();
-  }, 250);
-  void queueVgmChunks(track, generation);
 }
 
 function resetNativePlaybackSnapshot() {
@@ -349,7 +129,6 @@ function clearPlaybackRuntimeState() {
 
 async function stopAllOutput({ declick = true, keepNativeOutput = false } = {}) {
   if (declick) await fadeActiveOutput();
-  stopVgmAudio();
   if (nativePlaybackInitialized) {
     try {
       if (keepNativeOutput) await window.spcBoy.nativePlaybackUnload();
@@ -683,7 +462,7 @@ async function finalizePlaybackEnded() {
         : null;
     queuedSkipRequest = null;
     clearQueuedSkipTimer();
-    await stopPlaybackState({ declick: false, keepNativeOutput: Boolean(nextTrack && !isRenderedDecoderTrack(nextTrack)) });
+    await stopPlaybackState({ declick: false, keepNativeOutput: Boolean(nextTrack) });
 
     if (completedQueuedSkip) {
       advanceToAdjacent(completedQueuedSkip.delta);
@@ -706,8 +485,8 @@ async function stopPlaybackState({ declick = true, keepNativeOutput = false } = 
   playbackGeneration += 1;
   clearPlaybackRuntimeState();
   await stopAllOutput({ declick, keepNativeOutput });
-  // WebAudio-backed formats do not necessarily call nativePlaybackStop(), so
-  // explicitly release a cache-off archive materialization on a real stop.
+  // The core owns every output path; release an archive materialization only
+  // after the bridge has stopped or unloaded it.
   try { await window.spcBoy.releaseMaterializedTrack?.(); } catch {}
 
   await setPlaybackPowerSaveBlocker(false);
@@ -746,7 +525,7 @@ async function playTrackNow(trackId, startSeconds = 0, playbackOptions = null) {
     ? { trackId: track.id, totalSeconds: playbackTotalSeconds, fadeSeconds: fadeNowSeconds }
     : null;
   clearPlaybackRuntimeState();
-  await stopAllOutput({ keepNativeOutput: !isRenderedDecoderTrack(track) });
+  await stopAllOutput({ keepNativeOutput: true });
 
   state.currentTrackId = track.id;
   state.selectedTrackId = track.id;
@@ -763,9 +542,7 @@ async function playTrackNow(trackId, startSeconds = 0, playbackOptions = null) {
   playbackApp.ui.refreshPlaylistPlaybackState();
 
   try {
-    // The durable archive cache is also used by renderer PCM decodes. Hold the
-    // main-process playback guard before materializing so Clear Cache cannot
-    // remove the path between decode chunks.
+    // Hold the archive materialization while the bridge owns the source path.
     await setPlaybackPowerSaveBlocker(true);
     const playbackPath = track.archivePath
       ? await window.spcBoy.materializeTrack(track.archivePath, track.archiveEntry)
@@ -796,16 +573,6 @@ async function playTrackNow(trackId, startSeconds = 0, playbackOptions = null) {
       await setPlaybackPowerSaveBlocker(false);
       state.isPlaying = false;
       resetNativePlaybackSnapshot();
-      playbackApp.ui.refreshPlaylistPlaybackState();
-      return;
-    }
-    if (isRenderedDecoderTrack(track)) {
-      await playVgmAudio({ ...track, path: playbackPath }, requestedStartSeconds, {
-        totalSeconds: playbackTotalSeconds,
-        fadeStartSeconds: fadeNowSeconds > 0 ? requestedStartSeconds : null,
-        fadeSeconds: fadeNowSeconds > 0 ? fadeNowSeconds : currentFadeSeconds(track)
-      });
-      state.isPlaying = true;
       playbackApp.ui.refreshPlaylistPlaybackState();
       return;
     }
@@ -929,16 +696,6 @@ async function togglePlayback() {
     playbackGeneration += 1;
     clearPlaybackRuntimeState();
     try {
-      if (isRenderedDecoderTrack(track)) {
-        vgmAudioOffset += Math.max(0, vgmAudioContext.currentTime - vgmAudioStartedAt);
-        await fadeActiveOutput(TRANSPORT_DECLICK_MS);
-        stopVgmAudioPreservingOffset();
-        state.elapsedSeconds = playbackCoordinator.clampPosition(vgmAudioOffset, state.totalSeconds);
-        state.isPlaying = false;
-        await setPlaybackPowerSaveBlocker(false);
-        updatePlaybackReadout();
-        return;
-      }
       await fadeActiveOutput(TRANSPORT_DECLICK_MS);
       const snapshot = await window.spcBoy.nativePlaybackPause();
       await setPlaybackPowerSaveBlocker(false);

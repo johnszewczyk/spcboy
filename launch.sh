@@ -29,13 +29,8 @@ if [[ ! -d "$ROOT_DIR/node_modules/electron" ]]; then
   npm install --prefix "$ROOT_DIR"
 fi
 
-"$ROOT_DIR/scripts/build-lazyusf-helper.sh"
-"$ROOT_DIR/scripts/build-mgba-helper.sh"
-"$ROOT_DIR/scripts/build-libvgm-helper.sh"
-bash "$ROOT_DIR/scripts/build-2sf-helper.sh"
-bash "$ROOT_DIR/scripts/build-vgmstream-helper.sh"
-bash "$ROOT_DIR/scripts/build-play-psf-helper.sh"
-"$ROOT_DIR/scripts/build-libgme-helper.sh"
+bash "$ROOT_DIR/scripts/build-vgmboy-bridge.sh"
+bash "$ROOT_DIR/scripts/build-catalog-reader-bridge.sh"
 
 stop_runtime() {
   local runtime_path="$1"
@@ -77,8 +72,11 @@ mkdir -p "$APP_SOURCE_DIR"
 cp "$ROOT_DIR/package.json" "$APP_SOURCE_DIR/package.json"
 ditto "$ROOT_DIR/electron" "$APP_SOURCE_DIR/electron"
 ditto "$ROOT_DIR/web" "$APP_SOURCE_DIR/web"
-ditto "$ROOT_DIR/native" "$APP_SOURCE_DIR/native"
+mkdir -p "$APP_SOURCE_DIR/native"
+cp "$ROOT_DIR/native/vgmboy-electron-bridge" "$APP_SOURCE_DIR/native/vgmboy-electron-bridge"
+cp "$ROOT_DIR/native/catalog-reader-electron-bridge" "$APP_SOURCE_DIR/native/catalog-reader-electron-bridge"
 cp "$ROOT_DIR/app-icon.png" "$APP_SOURCE_DIR/app-icon.png"
+bash "$ROOT_DIR/scripts/stage-vgmboy-bridge-runtime.sh" "$APP_DIR"
 
 # Electron's ditto/cp staging deliberately preserves source timestamps, which
 # made a newly built bundle look old in Finder and in diagnostics.  Stamp each

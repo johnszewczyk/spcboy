@@ -1,83 +1,38 @@
 {
   "contract": "cocoaspice-spcboy-sidebar-search-view",
-  "version": 1,
+  "version": 2,
   "cases": [
     {
-      "id": "folder-search-is-temporary-and-clears-to-folders",
-      "initialMode": "folders",
+      "id": "paths-remain-a-catalog-projection-after-search-clears",
+      "initialMode": "paths",
       "steps": [
-        {
-          "setQuery": "",
-          "expected": { "storedMode": "folders", "query": "", "view": "folders", "contentMode": "folders", "resultSource": "folder-tree", "isTemporary": false }
-        },
-        {
-          "setQuery": "Castlevania",
-          "expected": { "storedMode": "folders", "query": "Castlevania", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        },
-        {
-          "setQuery": "",
-          "expected": { "storedMode": "folders", "query": "", "view": "folders", "contentMode": "folders", "resultSource": "folder-tree", "isTemporary": false }
-        }
+        { "setQuery": "", "expected": { "storedMode": "paths", "query": "", "view": "paths", "contentMode": "tree", "resultSource": "catalog-path-index", "isTemporary": false } },
+        { "setQuery": "Castlevania", "expected": { "storedMode": "paths", "query": "Castlevania", "view": "search", "contentMode": "database", "resultSource": "catalog-console-index", "isTemporary": true } },
+        { "setQuery": "", "expected": { "storedMode": "paths", "query": "", "view": "paths", "contentMode": "tree", "resultSource": "catalog-path-index", "isTemporary": false } }
       ]
     },
     {
-      "id": "database-search-is-temporary-and-clears-to-database",
-      "initialMode": "database",
+      "id": "consoles-remain-a-catalog-projection-after-search-clears",
+      "initialMode": "consoles",
       "steps": [
-        {
-          "setQuery": "  Silent Hill  ",
-          "expected": { "storedMode": "database", "query": "Silent Hill", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        },
-        {
-          "setQuery": "",
-          "expected": { "storedMode": "database", "query": "", "view": "database", "contentMode": "database", "resultSource": "database-index", "isTemporary": false }
-        }
+        { "setQuery": "  Silent Hill  ", "expected": { "storedMode": "consoles", "query": "Silent Hill", "view": "search", "contentMode": "database", "resultSource": "catalog-console-index", "isTemporary": true } },
+        { "setQuery": "", "expected": { "storedMode": "consoles", "query": "", "view": "consoles", "contentMode": "database", "resultSource": "catalog-console-index", "isTemporary": false } }
       ]
     },
     {
-      "id": "underlying-mode-can-change-without-covering-search",
-      "initialMode": "folders",
+      "id": "disk-path-is-distinct-from-catalog-views",
+      "initialMode": "diskPath",
       "steps": [
-        {
-          "setQuery": "Chrono",
-          "expected": { "storedMode": "folders", "query": "Chrono", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        },
-        {
-          "setMode": "database",
-          "expected": { "storedMode": "database", "query": "Chrono", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        },
-        {
-          "setMode": "folders",
-          "expected": { "storedMode": "folders", "query": "Chrono", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        },
-        {
-          "setQuery": "",
-          "expected": { "storedMode": "folders", "query": "", "view": "folders", "contentMode": "folders", "resultSource": "folder-tree", "isTemporary": false }
-        }
+        { "setQuery": "", "expected": { "storedMode": "diskPath", "query": "", "view": "diskPath", "contentMode": "tree", "resultSource": "disk-path-tree", "isTemporary": false } },
+        { "setMode": "paths", "expected": { "storedMode": "paths", "query": "", "view": "paths", "contentMode": "tree", "resultSource": "catalog-path-index", "isTemporary": false } },
+        { "setMode": "consoles", "expected": { "storedMode": "consoles", "query": "", "view": "consoles", "contentMode": "database", "resultSource": "catalog-console-index", "isTemporary": false } }
       ]
     },
     {
       "id": "whitespace-does-not-open-search",
-      "initialMode": "database",
+      "initialMode": "consoles",
       "steps": [
-        {
-          "setQuery": " \t ",
-          "expected": { "storedMode": "database", "query": "", "view": "database", "contentMode": "database", "resultSource": "database-index", "isTemporary": false }
-        }
-      ]
-    },
-    {
-      "id": "replacement-query-remains-independent-of-stored-mode",
-      "initialMode": "folders",
-      "steps": [
-        {
-          "setQuery": "Castlevania",
-          "expected": { "storedMode": "folders", "query": "Castlevania", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        },
-        {
-          "setQuery": "Metroid",
-          "expected": { "storedMode": "folders", "query": "Metroid", "view": "search", "contentMode": "database", "resultSource": "database-index", "isTemporary": true }
-        }
+        { "setQuery": " \t ", "expected": { "storedMode": "consoles", "query": "", "view": "consoles", "contentMode": "database", "resultSource": "catalog-console-index", "isTemporary": false } }
       ]
     }
   ]

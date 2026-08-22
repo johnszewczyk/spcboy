@@ -19,36 +19,14 @@ async function refreshLibraryRoots() {
 async function handleLibraryRootsChanged(roots) {
   state.libraryRoots = Array.isArray(roots) ? roots : [];
   await refreshDatabaseGamesForVisibleRoots();
-  if (state.sidebarMode !== "folders") {
-    renderAll();
-    return;
-  }
-  if (state.rootPath) {
-    // The raw Folders browser restores its persisted root and selected
-    // folder. Catalog root changes must not discard that selection.
-    renderAll();
-    app.ui.syncTreeSelection();
-    return;
-  }
-  const activeRoot = state.libraryRoots.find((root) => root.is_enabled) || null;
-  if (!activeRoot) {
-    state.rootPath = null;
-    state.tree = [];
-    state.selectedFolderPath = null;
-    state.selectedBrowserPath = null;
-    state.playlist = [];
-    state.selectedTrackId = null;
-    state.lastSelectedTrackId = null;
-    persistSettings();
-    renderAll();
-    return;
-  }
-  const snapshot = await window.spcBoy.refreshTree(activeRoot.path, activeRoot.path);
-  Object.assign(state, snapshot);
-  state.selectedTrackId = app.ui.resolveSelectedTrackId(snapshot.playlist);
-  state.lastSelectedTrackId = state.selectedTrackId;
+  state.databaseFiles = [];
+  state.databaseFileTree = [];
   persistSettings();
   renderAll();
+  if (state.sidebarMode === "paths") {
+    await app.ui.loadDatabaseFiles();
+    renderAll();
+  }
   app.ui.syncTreeSelection();
 }
 

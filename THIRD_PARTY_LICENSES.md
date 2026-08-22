@@ -1,67 +1,16 @@
 # Third-Party Licenses
 
-SPCBoy uses external open-source playback libraries. Their copyright and license terms remain applicable.
+SPCBoy's bundled `vgmboy-electron-bridge` is its only decoder and audio-output
+component. The complete decoder dependency list, exact versions, and upstream
+licenses are maintained with that bundled core in
+[`../VGMBoy/README.md`](../VGMBoy/README.md). SPCBoy does not link, invoke, or
+ship a second decoder, metadata reader, PCM renderer, or format-specific helper.
 
-## libgme
+## VGMBoy
 
-- Purpose: AY, GBS, HES, KSS, NSF, NSFE, SAP, and SPC playback and metadata inspection.
-- License: LGPL-2.1-or-later.
-- Source: <https://github.com/libgme/game-music-emu>
-
-## libsidplayfp (SIDLite)
-
-- Purpose: Commodore 64 SID playback and metadata inspection.
-- License: GPL-2.0-or-later.
-- Source: <https://github.com/libsidplayfp/libsidplayfp>
-- Note: SPCBoy links the Homebrew `libsidplayfp` build and uses its bundled SIDLite emulation.
-
-## libvgm
-
-- Purpose: VGM, VGZ, GYM, and S98 playback and metadata inspection.
-- License: mixed upstream component licenses; see the vendored source notices.
-- Source: <https://github.com/ValleyBell/libvgm>
-
-## lazyusf2 and psflib
-
-- Purpose: Nintendo 64 USF and miniUSF playback and metadata inspection.
-- License: see the vendored source notices in `vendor/lazyusf2` and `vendor/psflib`.
-- Source: <https://github.com/Lazyusf2/lazyusf2>
-
-## mGBA / Highly Complete
-
-- Purpose: Game Boy Advance GSF and miniGSF playback through the vendored GBA core.
-- License: MPL-2.0; see `vendor/mgba/LICENSE`.
-- Source: <https://github.com/mgba-emu/mgba>
-
-## 2sf2wav
-
-- Purpose: Nintendo DS 2SF and mini2SF playback through the vendored DeSmuME-derived core.
-- License: GPL-2.0-or-later; see the vendored source notices in `vendor/2sf2wav`.
-- Source: <https://bitbucket.org/ahigerd/2sf2wav>
-
-## libopenmpt
-
-- Purpose: XM module metadata inspection and PCM rendering through the installed `openmpt123` command.
-- License: BSD-3-Clause; see the installed libopenmpt distribution notices.
-- Source: <https://lib.openmpt.org/libopenmpt/>
-
-## FFmpeg
-
-- Purpose: standard audio metadata inspection and PCM rendering through the installed `ffprobe` and `ffmpeg` commands.
-- License: LGPL-2.1-or-later or GPL-2-or-later depending on the configured build; see the installed FFmpeg build configuration.
-- Source: <https://ffmpeg.org/>
-
-## vgmstream
-
-- Purpose: streamed game-audio formats including console ADPCM, XA, VAG, ATRAC, and bank/container families.
-- License: see `vendor/vgmstream/COPYING` and its codec dependency notices.
-- Source: <https://github.com/vgmstream/vgmstream>
-
-## Play!
-
-- Purpose: PlayStation PSF and PlayStation 2 PSF2 playback through the vendored PSF core.
-- License: see `vendor/play/License.txt` and the vendored dependency notices.
-- Source: <https://github.com/jpd002/Play->
+- Purpose: bundled format routing, decoder integration, timing, EQ, and macOS audio output.
+- Source: <https://github.com/johnszewczyk/VGMBoy>
+- Upstream decoder licenses: see VGMBoy's exhaustive **Active decoder plugins** table and the vendored source notices it identifies.
 
 ## Electron
 

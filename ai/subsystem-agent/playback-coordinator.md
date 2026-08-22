@@ -2,13 +2,13 @@
 
 ## Scope
 
-- Shared renderer ownership of track transitions, timing, progress, and playback lifecycle across native-session and renderer-PCM backends.
+- Renderer ownership of track transitions, timing, progress, and playback lifecycle while VGMBoy owns all decoded output.
 
 ## Ownership
 
 - `web/app-playback.js` remains the coordinator entry point while the backend-specific decoders stay behind their existing preload APIs.
-- `electron/playback-core.js` owns format-to-backend selection only; it must not own renderer timing or UI state.
-- `electron/playback-core.js` declares each backend's playback mode and helper identity; native IPC and renderer routing consume that capability instead of duplicating format-specific decisions.
+- `electron/playback-core.js` owns format-admission policy only; it must not own output routing, renderer timing, or UI state.
+- Every admitted backend declares the same required VGMBoy bridge; native IPC is the sole output route.
 - `electron/playback-core.js` is the single backend capability registry. Preload exposes its data-only renderer view and `web/playback-backends.js` builds the renderer lookup from that view.
 - Native helpers own decoding and device/session mechanics, not track selection or progress-slider policy.
 - The native decoder contract is worker-owned; decoder adapters must not be called from the Core Audio callback.
@@ -40,6 +40,3 @@
 - [web/app-playback.js](/Users/john/Downloads/Code/SPCBoy/web/app-playback.js)
 - [electron/playback-core.js](/Users/john/Downloads/Code/SPCBoy/electron/playback-core.js)
 - [electron/preload.js](/Users/john/Downloads/Code/SPCBoy/electron/preload.js)
-- [native/libgme_tool.c](/Users/john/Downloads/Code/SPCBoy/native/libgme_tool.c)
-- [native/native_decoder.h](/Users/john/Downloads/Code/SPCBoy/native/native_decoder.h)
-- [native/libvgm_tool.cpp](/Users/john/Downloads/Code/SPCBoy/native/libvgm_tool.cpp)

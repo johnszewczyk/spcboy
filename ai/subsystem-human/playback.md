@@ -20,7 +20,8 @@
 - Timing: with Long Play off, a track plays its decoder-reported natural duration, including the first track played after selecting a folder or archive.
 - Playback Speed: libgme supports SPC, NSF/NSFE, GBS, HES, KSS, AY, and SAP; libvgm supports GYM, S98, VGM, and VGZ. Each encoder has an independent enable setting and accepts a reduced exact decimal or fraction.
 - Playback Speed: a speed change applies only while its compatible encoder owns the active track. Source-rate conversion for streamed formats remains playback correction, not a generic speed or pitch control.
-- Playback: native-session formats use streamed native output with seeking; OpenMPT and standard audio use chunked renderer PCM with seeking.
+- Playback: every admitted format uses bundled VGMBoy native output with seeking; the Electron UI
+  does not create a second audio graph or per-format fallback.
 - Playback: vgmstream source rates are resampled to the native 44.1 kHz stereo output, including 3DO SNDS streams that otherwise play at the wrong speed.
 - Transport: pause, stop, and track replacement use a 10 ms output de-click envelope. The envelope is too short to alter a track's musical attack; it only removes the discontinuity at the output boundary.
 - Queued Skips: the current live track fades through the configured fade duration, then the requested adjacent track starts. It never reloads a tail of the current track to manufacture that fade.
@@ -28,5 +29,4 @@
 ## Files
 
 - [web/app-playback.js](/Users/john/Downloads/Code/SPCBoy/web/app-playback.js)
-- [native/libgme_tool.c](/Users/john/Downloads/Code/SPCBoy/native/libgme_tool.c)
 - [web/playback-speed.js](/Users/john/Downloads/Code/SPCBoy/web/playback-speed.js)

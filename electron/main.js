@@ -2,8 +2,8 @@ const fsSync = require("fs");
 const fs = fsSync.promises;
 const path = require("path");
 const { app, BrowserWindow, Menu, dialog, globalShortcut, ipcMain, powerSaveBlocker, shell } = require("electron");
-const { CanonicalLibraryReader } = require("./canonical-library-reader");
-const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsNativePlayback, supportsPath } = require("./playback-core");
+const { CatalogReaderClient } = require("./catalog-reader-client");
+const { BACKEND_MODULES, backendForPath, routeForPath, setRoutingPreferences, supportsPath } = require("./playback-core");
 const { archiveCacheSummary, clearArchiveCache, pruneArchiveCache, recoverArchiveCachePartials, isArchiveCacheBusy, materializeZipEntry, materializeArchiveEntryForPlayback, materializeArchiveEntriesForInspection, isSupportedArchivePath, recoverAbandonedInspectionScratchRoots, recoverAbandonedPlaybackScratchRoots, DEFAULT_ARCHIVE_CACHE_LIMIT_BYTES, MIN_ARCHIVE_CACHE_LIMIT_BYTES, MAX_ARCHIVE_CACHE_LIMIT_BYTES } = require("./archive-resolver");
 const { discoverPhysicalSources } = require("./media-source-discovery");
 const { expandArchiveSources, ARCHIVE_LIST_CONCURRENCY } = require("./playlist-archive-discovery");
@@ -44,6 +44,10 @@ let playbackPowerSaveBlockerId = null;
 let nativePlaybackBroadcastTimer = null;
 let nativePlaybackBroadcastInFlight = false;
 let libraryDatabase = null;
+
+function createCatalogReader(databasePath) {
+  return new CatalogReaderClient(databasePath, { getAppPath: () => app.getAppPath() });
+}
 
 function defaultLibraryDatabasePath() {
   return path.join(app.getPath("appData"), "CocoaSpice", "Library.sqlite");
@@ -99,7 +103,7 @@ async function reloadActiveLibraryDatabase() {
   // Validate a replacement reader before releasing the current one. Playback
   // works from files already selected for the queue, and all catalog access
   // remains query-only throughout the handoff.
-  const replacement = new CanonicalLibraryReader(location.activePath);
+  const replacement = createCatalogReader(location.activePath);
   await replacement.initialize();
   const previous = libraryDatabase;
   libraryDatabase = replacement;
@@ -157,9 +161,7 @@ ipcMain.on("app:playback-backends", (event) => {
 });
 
 const nativeAudio = createNativeAudioTools({
-  getAppPath: () => app.getAppPath(),
-  backendForPath,
-  supportsNativePlayback
+  getAppPath: () => app.getAppPath()
 });
 
 function bringAppWindowsToFront(preferredWindow = null) {
@@ -349,6 +351,11 @@ function sendTransportAction(action) {
   mainWindow.webContents.send("transport:shortcut", action);
 }
 
+function sendLibraryCommand(command) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("library:command", command);
+}
+
 async function openAboutWindow() {
   if (aboutWindow && !aboutWindow.isDestroyed()) {
     aboutWindow.focus();
@@ -521,11 +528,31 @@ function registerAppMenu() {
       label: "File",
       submenu: [
         {
-          label: "Open Folder or Track",
+          label: "Open Path…",
           accelerator: "CommandOrControl+O",
           click: () => openLibraryFromDialog().catch((error) => {
             console.error("[SPCBoy] open dialog failed", error);
           })
+        }
+      ]
+    },
+    {
+      label: "Sidebar",
+      submenu: [
+        {
+          label: "Paths",
+          accelerator: "CommandOrControl+1",
+          click: () => sendLibraryCommand({ type: "sidebar-view", view: "paths" })
+        },
+        {
+          label: "Consoles",
+          accelerator: "CommandOrControl+2",
+          click: () => sendLibraryCommand({ type: "sidebar-view", view: "consoles" })
+        },
+        {
+          label: "Disk Path",
+          accelerator: "CommandOrControl+3",
+          click: () => sendLibraryCommand({ type: "sidebar-view", view: "diskPath" })
         }
       ]
     },
@@ -858,7 +885,7 @@ async function snapshotForOpenPath(inputPath) {
 
   return {
     ...(await snapshotForRoot(target.rootPath, target.selectedFolderPath, true)),
-    sidebarMode: "folders",
+    sidebarMode: "diskPath",
     sidebarQuery: "",
     selectedDatabaseGameKey: null
   };
@@ -1044,7 +1071,7 @@ ipcMain.handle("library:database-location-choose", async () => {
   });
   const selectedPath = result.canceled ? null : result.filePaths[0];
   if (!selectedPath) return null;
-  const validated = await CanonicalLibraryReader.validate(selectedPath);
+  const validated = await CatalogReaderClient.validate(selectedPath, { getAppPath: () => app.getAppPath() });
   await saveLibraryDatabasePath(validated.path);
   return { ...libraryDatabaseLocation(), configuredPath: validated.path, requiresRestart: path.resolve(validated.path) !== path.resolve(libraryDatabase.databasePath), catalog: validated };
 });
@@ -1099,12 +1126,39 @@ ipcMain.handle("library:refresh-tree", async (_event, rootPath, selectedFolderPa
 ipcMain.handle("library:database-roots", async () => libraryDatabase.loadRoots());
 ipcMain.handle("library:database-games", async () => libraryDatabase.loadGames());
 ipcMain.handle("library:database-search-games", async (_event, query) => searchDatabaseGames(query));
+ipcMain.handle("library:database-files", async () => libraryDatabase.loadFiles());
 ipcMain.handle("library:database-game-tracks", async (_event, games) => {
   const rows = await libraryDatabase.tracksForGames(Array.isArray(games) ? games : []);
   return rows.map((row) => ({
     ...row,
     playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
   }));
+});
+ipcMain.handle("library:database-file-tracks", async (_event, files) => {
+  const rows = await libraryDatabase.tracksForFiles(Array.isArray(files) ? files : []);
+  return rows.map((row) => ({
+    ...row,
+    playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
+  }));
+});
+ipcMain.handle("library:database-folder-tracks", async (_event, folders) => {
+  const rows = await libraryDatabase.tracksForFolders(Array.isArray(folders) ? folders : []);
+  return rows.map((row) => ({
+    ...row,
+    playlistId: playlistTrackIdentity(row.archivePath || row.path, row.archiveEntry, row.trackIndex)
+  }));
+});
+ipcMain.handle("library:show-sidebar-view-menu", (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window || window.isDestroyed()) return false;
+  Menu.buildFromTemplate([
+    { label: "Paths", click: () => sendLibraryCommand({ type: "sidebar-view", view: "paths" }) },
+    { label: "Consoles", click: () => sendLibraryCommand({ type: "sidebar-view", view: "consoles" }) },
+    { label: "Disk Path", click: () => sendLibraryCommand({ type: "sidebar-view", view: "diskPath" }) },
+    { type: "separator" },
+    { label: "Open Path…", click: () => openLibraryFromDialog().catch((error) => console.error("[SPCBoy] open dialog failed", error)) }
+  ]).popup({ window });
+  return true;
 });
 ipcMain.handle("library:archive-cache-summary", async () => ({
   ...await archiveCacheSummary(),
@@ -1218,43 +1272,6 @@ ipcMain.handle("playlist:release-materialized-track", async () => {
   return true;
 });
 
-ipcMain.handle("playlist:decode-track-pcm", async (_event, trackPath, trackIndex, startMs, playMs, fadeMs, specialAudioKind) => {
-  if (specialAudioKind === "nds-swav") {
-    return Uint8Array.from(await nativeAudio.decodeNdsSwav(trackPath, trackIndex, startMs, playMs, fadeMs));
-  }
-  if (specialAudioKind === "nds-raw-pcm22") {
-    return Uint8Array.from(await nativeAudio.decodeNdsRawPcm22(trackPath, startMs, playMs));
-  }
-  const backend = backendForPath(trackPath)?.id;
-  const decoded = backend === "openmpt"
-    ? await nativeAudio.decodeOpenMpt(trackPath, startMs, playMs)
-    : backend === "standard-audio"
-      ? await nativeAudio.decodeFfmpeg(trackPath, startMs, playMs)
-      : backend === "libvgm"
-        ? await nativeAudio.decodeLibVgm(trackPath, startMs, playMs, fadeMs)
-        : backend === "vgmstream"
-          ? await nativeAudio.decodeGme(trackPath, trackIndex, startMs, playMs, fadeMs)
-          : backend === "lazyusf"
-            ? await nativeAudio.decodeLazyUsf(trackPath, startMs, playMs)
-            : await nativeAudio.decodeGme(trackPath, trackIndex, startMs, playMs, fadeMs);
-  return Uint8Array.from(decoded);
-});
-
-ipcMain.handle("playlist:playback-session-open", async (_event, trackPath, trackIndex, startMs, playMs, fadeMs) => {
-  await nativeAudio.openSession(trackPath, trackIndex, startMs, playMs, fadeMs);
-  return true;
-});
-
-ipcMain.handle("playlist:playback-session-read", async (_event, frameCount) => {
-  const decoded = await nativeAudio.readSession(frameCount);
-  return Uint8Array.from(decoded);
-});
-
-ipcMain.handle("playlist:playback-session-close", async () => {
-  await nativeAudio.closeSession();
-  return true;
-});
-
 ipcMain.handle("playback:native-init", async () => {
   const result = await nativeAudio.initializeNativePlayback();
   startNativePlaybackBroadcasts();
@@ -1330,7 +1347,7 @@ app.whenReady().then(async () => {
   archiveCacheRecovery = await recoverArchiveCachePartials();
   await recoverAbandonedInspectionScratchRoots();
   playbackScratchRecovery = await recoverAbandonedPlaybackScratchRoots();
-  libraryDatabase = new CanonicalLibraryReader(configuredLibraryDatabasePath());
+  libraryDatabase = createCatalogReader(configuredLibraryDatabasePath());
   await libraryDatabase.initialize();
   appIconPath = resolveRootPngIconPath();
   if (process.platform === "darwin" && app.dock && appIconPath) {

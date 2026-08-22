@@ -9,10 +9,10 @@
 
 - MediaScanner is the sole catalog writer and owns roots, scanning, metadata,
   projections, diagnostics, cancellation, and resume.
-- `canonical-library-reader.js` owns SPCBoy's production query adapter and maps
-  the catalog's `author` field to SPCBoy's `artist` presentation field.
-- `sqlite-worker.js` opens query-only lanes with SQLite's OS-level `readOnly`
-  option and also applies `PRAGMA query_only=ON`.
+- The bundled `catalog-reader-electron-bridge` owns every production schema
+  validation, query-only SQLite connection, sidebar projection, numeric-aware
+  ordering, filtering, and catalog-row mapping through the shared Swift
+  `CatalogReader` package. `catalog-reader-client.js` only frames bridge calls.
 - `main.js` owns database-location persistence, native Browse, schema validation,
   safe reader reload, restart-required state, and guarded read IPC.
 - The renderer owns presentation only; no preload API exposes catalog mutation.
@@ -21,8 +21,8 @@
 
 - The default database is
   `~/Library/Application Support/CocoaSpice/Library.sqlite`.
-- Browse persists another absolute path only after SPCBoy's query-only
-  canonical reader accepts schema 23 and required tables.
+- Browse persists another absolute path only after the Swift CatalogReader
+  bridge accepts schema 23 and its required catalog shape.
 - A changed location takes effect after restart. Reload Library replaces only the
   active reader after its replacement has passed schema validation; a staged
   different path still requires restart.
@@ -40,15 +40,19 @@
 - Database activation reads the stored source, archive member, and subtrack
   identity used by playback; a player never reinterprets that identity as a
   new catalog row.
-- Search is a temporary third database view independent of the stored Folders
-  or Database mode. Clearing it restores the underlying mode.
+- Paths and Consoles are distinct catalog views. Search temporarily covers any
+  stored view with the catalog game index; clearing it restores Paths,
+  Consoles, or Disk Path.
 - Database game activation preserves stored archive member and libgme subtrack
   identity so the selected child track is played.
 
 ## Performance and Failure Boundaries
 
-- Durable `game_sidebar_buckets`, file-tree projections, and FTS data are read
-  directly; SPCBoy does not rebuild them.
+- Durable `game_sidebar_buckets` and `file_sidebar_buckets` are read directly;
+  SPCBoy builds only its renderer-local presentation tree and never rebuilds
+  or writes catalog projections.
+- The shared Swift reader applies numeric-aware ordering before it returns
+  renderer rows because SQLite NOCASE ordering is lexical (`10` before `9`).
 - `latest-request-coalescer.js` discards superseded pending search/activation
   work so stale typing cannot block the newest query.
 - Schema or read failures remain visible and do not trigger a fallback scanner
@@ -56,9 +60,8 @@
 
 ## Files
 
-- [canonical-library-reader.js](/Users/john/Downloads/Code/SPCBoy/electron/canonical-library-reader.js)
-- [sqlite-worker-client.js](/Users/john/Downloads/Code/SPCBoy/electron/sqlite-worker-client.js)
-- [sqlite-worker.js](/Users/john/Downloads/Code/SPCBoy/electron/sqlite-worker.js)
+- [catalog-reader-client.js](/Users/john/Downloads/Code/SPCBoy/electron/catalog-reader-client.js)
+- [CatalogReader bridge](/Users/john/Downloads/Code/CatalogReader/Sources/CatalogReaderElectronBridge/main.swift)
 - [latest-request-coalescer.js](/Users/john/Downloads/Code/SPCBoy/electron/latest-request-coalescer.js)
 - [main.js](/Users/john/Downloads/Code/SPCBoy/electron/main.js)
 - [app-library.js](/Users/john/Downloads/Code/SPCBoy/web/app-library.js)

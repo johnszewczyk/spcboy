@@ -2,7 +2,7 @@
 
 ## Root cause
 
-SPCBoy pins `vendor/vgmstream` to the r2117 release. The vgmstream native decoder
+The app family pins VGMBoy's shared `vendor/vgmstream` source to the r2117 release. The vgmstream native decoder
 `configure()` hardcoded `vgmstream_player_configure(vgm->player, false, ...)` and
 ignored the requested `play_ms`, so a track played only to its natural end even when
 Long Play set a longer manual duration. The shell (`libgme_tool.c`) stops on

@@ -19,7 +19,7 @@ const contract = JSON.parse(fs.readFileSync(
 test("matches the CocoaSpice/SPCBoy sidebar search-view contract", () => {
   const api = sidebarViewApi();
   assert.equal(contract.contract, "cocoaspice-spcboy-sidebar-search-view");
-  assert.equal(contract.version, 1);
+  assert.equal(contract.version, 2);
   assert.ok(contract.cases.length > 0);
 
   for (const fixture of contract.cases) {

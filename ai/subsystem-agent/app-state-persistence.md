@@ -19,7 +19,7 @@
 - `currentTrackId` is the active playback row.
 - Selecting a row does not automatically start playback.
 - Selecting a different folder in the sidebar does not automatically stop current playback.
-- Metadata hydration for older playlist generations is ignored once a newer metadata token exists. Archive hydration returns only to the generation that requested it, while matching indexed rows persist the refreshed metadata through the main process.
+- Raw structural completion for an older playlist generation is ignored once a newer generation exists. It updates only the requesting generation and never persists decoder-derived display metadata.
 
 ## Critical Engineering Notes
 

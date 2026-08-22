@@ -8,7 +8,7 @@ This report covers PlayStation PSF and PlayStation 2 PSF2 intake, metadata inspe
 
 CocoaSpice uses the Play! PSF core with `PSFCORE_ONLY=ON` and a C++ bridge around `CPsfVm`, `CPsfLoader`, `CPhysicalPsfStreamProvider`, and a buffered `CSoundHandler`. The bridge reads `[TAG]` metadata without starting the emulator, resolves `_lib` dependencies through Play!'s loader, captures stereo signed 16-bit PCM at 44.1 kHz, rebuilds the VM for seek, and applies declared `length`/`fade` timing at the playback boundary.
 
-SPCBoy stages the Play! source under `vendor/play`, builds the PSF core as `.build/play-psf/libspcboy_play_psf.a`, and keeps the bridge and `NativeDecoder` adapter in SPCBoy-owned files.
+VGMBoy owns the Play! source under its shared `vendor/play` garden, builds the PSF core, and exposes the decoder through the VGMBoy Electron bridge. SPCBoy no longer carries a Play! source tree or native decoder adapter.
 
 ## Scanner and archive contract
 

@@ -6,10 +6,9 @@ This report tracks the next decoder family after libgme, libvgm, and lazyusf2: G
 
 ## Current dependency state
 
-- SPCBoy previously had no mGBA source, build step, or Highly Complete bridge.
-- The CocoaSpice mGBA vendor snapshot was staged at `vendor/mgba` as a third-party dependency, including its upstream `LICENSE`.
-- SPCBoy already contains `vendor/psflib`, so the GSF PSF container loader does not require a second psflib copy.
-- `scripts/build-mgba-helper.sh` builds mGBA with `LIBMGBA_ONLY=ON`, `M_CORE_GBA=ON`, `M_CORE_GB=OFF`, and static-library output.
+- The former app-local mGBA and PSFLib copies were consolidated into VGMBoy's shared `vendor/` garden.
+- VGMBoy builds the Highly Complete bridge and exposes it through the same playback-core boundary used by CocoaSpice and SPCBoy.
+- SPCBoy does not own an mGBA source tree, build step, bridge, or format-specific native helper.
 
 ## Dependency verification
 
