@@ -2,21 +2,16 @@
 
 ## Product
 
-- `SPCBoy` is now an Electron desktop app with a web renderer UI.
-- Audio playback uses a registered backend system with libgme, libvgm, lazyusf2, Highly Complete, OpenMPT, standard audio, 2SF, vgmstream, and Play! PSF modules, plus content-based Nintendo DS WAV payload routes.
-- The active product shape is:
-  sidebar browser,
-  selected-folder playlist,
-  bottom transport/progress bar,
-  separate Options window,
-  renderer-owned playback.
+`SPCBoy` is an Electron desktop app with a web renderer UI. It reads the shared MediaScanner
+catalog, owns its playlist and presentation, and sends all admitted playback through the bundled
+VGMBoy bridge.
 
 ## Major Components
 
 - Main shell, sidebar, and bottom transport UI.
 - Selected-folder playlist and column behavior.
 - Sidebar browser, search, and root selection.
-- Native-helper playback, transport, and timing.
+- VGMBoy bridge playback, transport, and timing.
 - Renderer settings persistence and playback-state ownership.
 - Build, launch, and helper runtime packaging.
 
@@ -37,6 +32,7 @@ Agent engineering notes:
 - Shared scanner boundary and playlist media intake: [media-intake-lifecycle.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/media-intake-lifecycle.md)
 - Playlist ownership and display: [gui-playlist-core.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-playlist-core.md), [gui-playlist-columns.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/gui-playlist-columns.md)
 - Shared playback lifecycle and transition ownership: [playback-coordinator.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/playback-coordinator.md)
+- Shared playback core and decoder boundary: [audio-playback-streaming.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/audio-playback-streaming.md)
 - Renderer state and persistence: [app-state-persistence.md](/Users/john/Downloads/Code/SPCBoy/ai/subsystem-agent/app-state-persistence.md)
 
 ## Local Rules
